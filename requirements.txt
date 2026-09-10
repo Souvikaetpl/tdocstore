@@ -1,0 +1,9 @@
+httpx
+beautifulsoup4
+lxml
+openpyxl
+python-docx
+pypdf
+python-pptx
+psycopg[binary]
+python-dotenv

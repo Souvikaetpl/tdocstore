@@ -2,7 +2,7 @@ import argparse
 import logging
 
 from crawler import config
-from crawler.ingest import ingest_scope, run_extraction
+from crawler.ingest import ingest_scope, refresh_known_groups, run_extraction, run_rendering
 
 
 def parse_scope(args) -> list[tuple[str, str]]:
@@ -40,6 +40,19 @@ def main():
                               "instead of crawling.")
     parser.add_argument("--extract-limit", type=int, default=None,
                          help="Cap how many pending TDocs to extract in one run.")
+    parser.add_argument("--render", action="store_true",
+                         help="Render downloaded zips' main document to PDF (for the web preview) "
+                              "that haven't been processed yet, instead of crawling. Requires LibreOffice.")
+    parser.add_argument("--render-limit", type=int, default=None,
+                         help="Cap how many pending TDocs to render in one run.")
+    parser.add_argument("--refresh", action="store_true",
+                         help="Daily-refresh mode: re-sync every group already tracked in the DB "
+                              "(new meetings, new TDocs, and changed files on already-downloaded "
+                              "ones), then extract. Ignores --wg.")
+    parser.add_argument("--refresh-max-files", type=int, default=200,
+                         help="Cap on downloads per meeting during --refresh (default 200; "
+                              "pass a large number or handle backfill separately via --wg/--download "
+                              "for a group that isn't fully backfilled yet).")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -48,8 +61,16 @@ def main():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    if args.refresh:
+        refresh_known_groups(meetings_per_wg=3, max_files=args.refresh_max_files)
+        return
+
     if args.extract:
         run_extraction(limit=args.extract_limit)
+        return
+
+    if args.render:
+        run_rendering(limit=args.render_limit)
         return
 
     if not args.wg:

@@ -1,0 +1,506 @@
+* { box-sizing: border-box; }
+
+:root {
+  --home-bg: #f7f4ee;
+  --home-surface: #ffffff;
+  --home-border: #e6e1d3;
+  --home-text: #201f1a;
+  --home-muted: #726c5e;
+  --home-accent: #24463a;
+  --home-accent-hover: #2f5747;
+  --home-accent-soft: #e8efe9;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--home-bg);
+  color: var(--home-text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--home-border);
+  background: var(--home-surface);
+}
+
+header h1 {
+  font-size: 16px;
+  margin: 0 0 10px 0;
+  font-weight: 700;
+}
+
+.home-link { color: var(--home-accent); text-decoration: none; }
+.home-link:hover { text-decoration: underline; }
+
+.searchbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.searchbar input, .searchbar select, .searchbar button {
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  color: var(--home-text);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.searchbar select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+#q { flex: 1; min-width: 200px; }
+#source { width: 140px; }
+
+.searchbar button.secondary {
+  background: var(--home-surface);
+  border-color: var(--home-border);
+}
+.searchbar button.secondary:hover { background: var(--home-accent-soft); }
+
+.searchbar button {
+  background: var(--home-accent);
+  border-color: var(--home-accent);
+  cursor: pointer;
+  color: white;
+}
+
+.searchbar button:hover { background: var(--home-accent-hover); }
+
+main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#listPane {
+  width: 55%;
+  border-right: 1px solid var(--home-border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#listMeta {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--home-muted);
+}
+
+/* CSS Grid, not an HTML <table> — a table split into per-row
+   display:table blocks (needed so only the body scrolls, header stays
+   put) computes each row's column widths independently, so the header
+   and every body row can each land on different column boundaries.
+   Grid uses one shared column template for the header and every row,
+   so they're always aligned regardless of content length. */
+#resultsTable {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-size: 13px;
+}
+
+.results-grid-row {
+  display: grid;
+  grid-template-columns: 28px 100px 1fr 110px 70px 85px;
+  column-gap: 8px;
+}
+
+.results-header {
+  padding: 6px 8px;
+  color: var(--home-muted);
+  font-weight: 600;
+  background: var(--home-surface);
+  border-bottom: 1px solid var(--home-border);
+}
+
+#resultsBody {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.result-row {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--home-border);
+  cursor: pointer;
+}
+.result-row > div { overflow-wrap: break-word; min-width: 0; }
+.result-row:hover { background: var(--home-surface); }
+.result-row.selected { background: var(--home-accent-soft); }
+
+.tdoc-id { color: var(--home-accent); font-family: monospace; }
+.status-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: var(--home-border);
+  color: var(--home-text);
+}
+
+#pager {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--home-border);
+  font-size: 12px;
+}
+
+#pager button {
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  color: var(--home-text);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#pager button:disabled { opacity: 0.4; cursor: default; }
+
+#compareBtn {
+  margin: 8px 12px;
+  padding: 6px 10px;
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  color: var(--home-text);
+  border-radius: 4px;
+  cursor: pointer;
+}
+#compareBtn:disabled { opacity: 0.4; cursor: default; }
+
+#previewPane {
+  width: 45%;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+#previewEmpty { color: var(--home-muted); font-size: 13px; margin-top: 40px; text-align: center; }
+
+.detail-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.detail-meta { font-size: 12px; color: var(--home-muted); margin-bottom: 12px; line-height: 1.6; }
+.detail-meta b { color: var(--home-text); }
+.detail-actions { margin-bottom: 12px; }
+.detail-actions a {
+  color: white;
+  background: var(--home-accent);
+  text-decoration: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.detail-actions a:hover { background: var(--home-accent-hover); }
+.detail-text {
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  border-radius: 4px;
+  padding: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.no-text { color: var(--home-muted); font-style: italic; font-size: 13px; }
+
+.pdf-frame {
+  width: 100%;
+  height: 65vh;
+  border: 1px solid var(--home-border);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.compare-grid { display: flex; gap: 12px; }
+.compare-col { flex: 1; min-width: 0; background: var(--home-surface); border: 1px solid var(--home-border); border-radius: 4px; padding: 10px; }
+
+/* --- Homepage: same light theme as the search page above (shared
+   :root tokens at the top of this file), plus the row-list layout —
+   hero, stats strip, popular searches, Upcoming/Previous columns — that
+   don't exist on the search page. Structural ideas here are inspired by
+   a reference screenshot the user shared of a similar tool; the copy,
+   stats, and brand name are all our own, not copied. --- */
+
+body.home {
+  /* Opts out of the base body's flex-column layout entirely (that's for
+     the search page's fixed-height two-pane view) — as a flex item
+     under it, .home-main was shrinking to a fit-content width instead of
+     filling the page. */
+  display: block;
+  height: auto;
+  min-height: 100vh;
+  overflow-y: auto;
+}
+
+.home-header {
+  /* .home-header is still a <header> element, so it inherits the base
+     `header { border-bottom; padding }` above — reset here since the
+     hero has its own internal padding and the topbar owns its own
+     border instead. */
+  padding: 0;
+  border-bottom: none;
+}
+
+.home-topbar {
+  display: flex;
+  align-items: center;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--home-border);
+}
+
+.brand-name { font-size: 19px; font-weight: 700; letter-spacing: -0.2px; }
+.brand-sub { font-size: 10px; letter-spacing: 1.5px; color: var(--home-muted); margin-top: 2px; }
+
+.hero {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 44px 24px 8px;
+  text-align: center;
+}
+
+.eyebrow {
+  margin: 0 0 14px;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--home-muted);
+}
+
+.hero h1 {
+  margin: 0 0 14px;
+  font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  font-size: 40px;
+  line-height: 1.15;
+  font-weight: 400;
+  color: var(--home-text);
+}
+.hero h1 em { color: var(--home-accent); font-style: italic; }
+
+.tagline {
+  margin: 0 0 26px;
+  color: var(--home-muted);
+  font-size: 15px;
+}
+
+.hero-search {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.hero-search input {
+  flex: 1;
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  color: var(--home-text);
+  padding: 13px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.hero-search button {
+  background: var(--home-accent);
+  border: 1px solid var(--home-accent);
+  color: white;
+  padding: 13px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.hero-search button:hover { background: var(--home-accent-hover); }
+
+.popular-searches {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 10px;
+  font-size: 12.5px;
+  color: var(--home-muted);
+}
+.popular-searches a { color: var(--home-accent); text-decoration: none; }
+.popular-searches a:hover { text-decoration: underline; }
+
+.stats-strip {
+  display: flex;
+  justify-content: center;
+  gap: 44px;
+  margin-top: 34px;
+  padding-top: 22px;
+  border-top: 1px solid var(--home-border);
+}
+.stat { display: flex; flex-direction: column; }
+.stat strong { font-size: 22px; }
+.stat span { font-size: 10.5px; letter-spacing: 0.4px; text-transform: uppercase; color: var(--home-muted); }
+
+.home-main {
+  /* Overrides the generic `main { display: flex }` above (meant for the
+     search page's two-pane layout) — without this, .tsg-tabs stretches
+     into a full-height sidebar instead of a row of pills. */
+  display: block;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px 24px 24px;
+}
+
+.tsg-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.tsg-tab {
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  color: var(--home-muted);
+  padding: 8px 22px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tsg-tab:hover { border-color: var(--home-accent); }
+.tsg-tab.active { background: var(--home-accent); border-color: var(--home-accent); color: white; }
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.section-heading h2 {
+  margin: 0;
+  font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  font-weight: 400;
+  font-size: 22px;
+}
+.section-heading p { margin: 4px 0 0; font-size: 13px; color: var(--home-muted); }
+
+.section-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--home-muted);
+  white-space: nowrap;
+}
+.section-meta a { color: var(--home-accent); font-weight: 600; text-decoration: none; }
+.section-meta a:hover { text-decoration: underline; }
+
+.wg-list { display: flex; flex-direction: column; gap: 10px; }
+.wg-loading { color: var(--home-muted); font-size: 13px; padding: 16px 0; }
+
+.wg-row {
+  display: grid;
+  grid-template-columns: 32px minmax(160px, 220px) 1fr 1fr 100px 56px;
+  gap: 18px;
+  align-items: center;
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  border-radius: 10px;
+  padding: 14px 20px;
+}
+
+.wg-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--home-accent-soft);
+  color: var(--home-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wg-row-title { font-size: 14.5px; font-weight: 700; }
+.wg-row-desc { font-size: 12px; color: var(--home-muted); margin-top: 2px; line-height: 1.35; }
+
+.wg-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+}
+.cell-label { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--home-muted); }
+.cell-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--home-text);
+  overflow: hidden;
+}
+.cell-title > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cell-sub { font-size: 12px; color: var(--home-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-count { font-size: 11px; color: var(--home-muted); margin-top: 1px; }
+.cell-empty { font-size: 13px; color: var(--home-muted); }
+.wg-cell-link:hover .cell-title { color: var(--home-accent); text-decoration: underline; }
+
+.status-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.status-badge.status-past { background: var(--home-border); color: var(--home-muted); }
+.status-badge.status-ongoing { background: #1c3a2a; color: #6fd39a; }
+.status-badge.status-upcoming { background: var(--home-accent-soft); color: var(--home-accent); }
+
+.wg-cell-count { display: flex; flex-direction: column; }
+.wg-cell-count strong { font-size: 15px; }
+.wg-cell-count span { font-size: 11px; color: var(--home-muted); }
+
+.wg-view {
+  color: var(--home-accent);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+  justify-self: end;
+}
+.wg-view:hover { text-decoration: underline; }
+
+.home-footer {
+  max-width: 1100px;
+  margin: 24px auto 0;
+  padding: 20px 24px 32px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--home-muted);
+  border-top: 1px solid var(--home-border);
+}
+
+@media (max-width: 860px) {
+  .wg-row {
+    grid-template-columns: 32px 1fr;
+    grid-template-areas:
+      "icon name"
+      "upcoming upcoming"
+      "previous previous"
+      "count view";
+    row-gap: 10px;
+  }
+  .wg-icon { grid-area: icon; }
+  .wg-row-name { grid-area: name; }
+  .wg-cell-upcoming { grid-area: upcoming; }
+  .wg-cell-previous { grid-area: previous; }
+  .wg-cell-count { grid-area: count; }
+  .wg-view { grid-area: view; justify-self: start; }
+}

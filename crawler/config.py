@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -18,6 +19,7 @@ GROUPS = {
         "RAN3": "WG3_Iu",
         "RAN4": "WG4_Radio",
         "RAN5": "WG5_Test_ex-T1",
+        "RANAH1": "AHG1_ITU_Coord",
     },
     "sa": {
         "plenary": "TSG_SA",
@@ -50,3 +52,25 @@ MAX_RETRIES = 3
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RAW_DIR = DATA_DIR / "raw"
 TEXT_DIR = DATA_DIR / "text"
+RENDER_DIR = DATA_DIR / "rendered"
+
+
+def _find_soffice() -> str | None:
+    found = shutil.which("soffice")
+    if found:
+        return found
+    for candidate in (
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        "/usr/bin/soffice",
+        "/usr/lib/libreoffice/program/soffice",
+    ):
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+# None if LibreOffice isn't installed — render.py checks this and reports
+# a clear error rather than a confusing subprocess failure.
+SOFFICE_PATH = _find_soffice()
+RENDER_TIMEOUT_SECONDS = 120

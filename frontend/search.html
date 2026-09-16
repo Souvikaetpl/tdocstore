@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Search — 3GPP TDoc Replica</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1><a href="/" class="home-link">3GPP TDoc Replica</a></h1>
+    <div class="searchbar">
+      <input id="q" type="text" placeholder="Search title / abstract...">
+      <select id="tsg">
+        <option value="">All TSGs</option>
+        <option value="ran">RAN</option>
+        <option value="sa">SA</option>
+        <option value="ct">CT</option>
+      </select>
+      <select id="wg"><option value="">All groups</option></select>
+      <select id="meeting"><option value="">All meetings</option></select>
+      <input id="source" type="text" placeholder="Source (e.g. Huawei)">
+      <select id="doc_type"><option value="">All types</option></select>
+      <button id="searchBtn">Search</button>
+      <button id="clearBtn" class="secondary">Clear</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="listPane">
+      <div id="listMeta"></div>
+      <div id="resultsTable">
+        <div class="results-grid-row results-header">
+          <div></div><div>TDoc #</div><div>Title</div><div>Source</div><div>Status</div><div>Date</div>
+        </div>
+        <div id="resultsBody"></div>
+      </div>
+      <div id="pager">
+        <button id="prevBtn" disabled>&laquo; Prev</button>
+        <span id="pageInfo"></span>
+        <button id="nextBtn" disabled>Next &raquo;</button>
+      </div>
+      <button id="compareBtn" disabled>Compare selected (0)</button>
+    </section>
+
+    <section id="previewPane">
+      <div id="previewEmpty">Click a TDoc to preview it, or select 2–3 and click Compare.</div>
+      <div id="previewContent" hidden></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -7,3 +7,5 @@ pypdf
 python-pptx
 psycopg[binary]
 python-dotenv
+fastapi
+uvicorn[standard]

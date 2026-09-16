@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3GPP TDoc Replica</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="home">
+  <header class="home-header">
+    <div class="home-topbar">
+      <div class="brand">
+        <div class="brand-name">3GPP TDoc Replica</div>
+        <div class="brand-sub">3GPP DOCUMENT MIRROR</div>
+      </div>
+    </div>
+
+    <div class="hero">
+      <p class="eyebrow">Mirrored directly from 3GPP's own public FTP archive</p>
+      <h1>Search, read, and compare<br><em>3GPP TDocs</em></h1>
+      <p class="tagline">Find meeting documents, contributions, and specifications from RAN, SA, and CT.</p>
+
+      <form id="heroSearchForm" class="hero-search">
+        <input id="heroQ" type="text" placeholder="Enter a TDoc number, title, or keyword...">
+        <button type="submit">Search &rarr;</button>
+      </form>
+      <div class="popular-searches">
+        <span>Popular searches:</span>
+        <a href="/search?q=handover">handover</a>
+        <a href="/search?q=slicing">slicing</a>
+        <a href="/search?q=URLLC">URLLC</a>
+        <a href="/search?tsg=ran&amp;wg=RAN1">RAN1</a>
+        <a href="/search?tsg=sa&amp;wg=SA2">SA2</a>
+      </div>
+
+      <div class="stats-strip">
+        <div class="stat"><strong id="statDocs">—</strong><span>Documents</span></div>
+        <div class="stat"><strong id="statGroups">—</strong><span>Working groups</span></div>
+        <div class="stat"><strong id="statTsgs">—</strong><span>TSGs tracked</span></div>
+      </div>
+    </div>
+  </header>
+
+  <main class="home-main">
+    <nav class="tsg-tabs" id="tsgTabs">
+      <button class="tsg-tab active" data-tsg="ran">RAN</button>
+      <button class="tsg-tab" data-tsg="sa">SA</button>
+      <button class="tsg-tab" data-tsg="ct">CT</button>
+    </nav>
+
+    <div class="section-heading">
+      <div>
+        <h2 id="sectionTitle">Radio Access Networks (RAN)</h2>
+        <p id="sectionDesc">Explore working groups, upcoming meetings, and recent documents.</p>
+      </div>
+      <div class="section-meta">
+        <span id="wgCountLabel"></span>
+        <a id="archiveLink" href="/search?tsg=ran">View complete archive &rarr;</a>
+      </div>
+    </div>
+
+    <div id="wgList" class="wg-list"></div>
+  </main>
+
+  <footer class="home-footer">
+    <span>3GPP TDoc Replica — an independent mirror built from 3GPP's public FTP archive. Not affiliated with 3GPP or any other TDoc browsing tool.</span>
+  </footer>
+
+  <script src="/static/home.js"></script>
+</body>
+</html>

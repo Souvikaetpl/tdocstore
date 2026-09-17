@@ -1,8 +1,14 @@
+import re
+import threading
 from contextlib import contextmanager
 
 import psycopg
 
 from . import config
+
+_ALTER_ADD_COLUMN_RE = re.compile(
+    r"ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+)", re.IGNORECASE
+)
 
 SCHEMA_STATEMENTS = [
     """
@@ -97,12 +103,64 @@ _TDOC_FIELDS = [
 ]
 
 
-def connect() -> psycopg.Connection:
-    conn = psycopg.connect(config.DATABASE_URL)
+_schema_ready = False
+_schema_lock = threading.Lock()
+
+
+def _existing_columns(cur, table: str) -> set:
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table,)
+    )
+    return {row[0] for row in cur.fetchall()}
+
+
+def _run_schema_statements(conn) -> None:
     with conn.cursor() as cur:
+        existing_by_table: dict = {}
         for statement in SCHEMA_STATEMENTS:
+            m = _ALTER_ADD_COLUMN_RE.search(statement)
+            if m:
+                table, column = m.group(1), m.group(2)
+                # A no-op "ADD COLUMN IF NOT EXISTS" still takes an
+                # AccessExclusiveLock on the table just to check — on an
+                # already-migrated schema (the normal case, every time
+                # after the very first deploy) every one of these columns
+                # already exists, so skipping via a plain read from
+                # information_schema avoids ever taking that lock at all.
+                if table not in existing_by_table:
+                    existing_by_table[table] = _existing_columns(cur, table)
+                if column in existing_by_table[table]:
+                    continue
             cur.execute(statement)
     conn.commit()
+
+
+def connect() -> psycopg.Connection:
+    """Every caller in the codebase goes through this — including one API
+    request per call (service/queries.py) and a long-running crawl/render
+    job holding a single connection for hours. Re-running every ALTER
+    TABLE ... ADD COLUMN IF NOT EXISTS on EVERY connection was fine in
+    isolation, but each one takes an AccessExclusiveLock on its table
+    just to check, even when the column already exists — which collides
+    with anything else concurrently holding even a row-level lock on that
+    table. This genuinely deadlocked a running --render job against
+    nothing more than a normal read query (a one-off DB check) started
+    while it was mid-transaction.
+
+    Two layers of defense: migrations run at most once per process
+    (cached after the first connection — every connection after that
+    skips straight to psycopg.connect()), AND even that first run skips
+    any ALTER whose column is already present (see _run_schema_statements)
+    — the common case (an already-migrated schema, which is every run
+    after the very first deploy) never takes the lock at all, in any
+    process, including a brand-new one started while another is mid-write."""
+    global _schema_ready
+    conn = psycopg.connect(config.DATABASE_URL)
+    if not _schema_ready:
+        with _schema_lock:
+            if not _schema_ready:
+                _run_schema_statements(conn)
+                _schema_ready = True
     return conn
 
 

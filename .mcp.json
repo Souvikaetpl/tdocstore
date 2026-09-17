@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "3gpp-tdoc-replica": {
+      "command": "D:\\tdoc-replica\\.venv\\Scripts\\python.exe",
+      "args": ["D:\\tdoc-replica\\mcp_server.py"]
+    }
+  }
+}

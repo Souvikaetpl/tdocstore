@@ -73,4 +73,11 @@ def _find_soffice() -> str | None:
 # None if LibreOffice isn't installed — render.py checks this and reports
 # a clear error rather than a confusing subprocess failure.
 SOFFICE_PATH = _find_soffice()
-RENDER_TIMEOUT_SECONDS = 120
+# A handful of documents (confirmed cause: a Table-of-Contents field
+# filtered by a custom paragraph style, e.g. TOC \t "Observation" — a
+# 3GPP-template pattern) make LibreOffice's layout engine hang rather than
+# just run slow; the earlier 120s cap let each one peg a CPU core for two
+# full minutes on a 6-core machine, which was enough to starve the host
+# IDE's UI thread into a Windows "AppHang". Lower, since a genuine
+# multi-minute render is not expected for these documents anyway.
+RENDER_TIMEOUT_SECONDS = 40

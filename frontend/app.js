@@ -157,16 +157,18 @@ function renderDetailCard(d) {
   // text, matching TDocHamster's preview. /view renders on demand, so any
   // downloaded TDoc gets a PDF attempt — not just ones already rendered;
   // the first click on a given TDoc takes a few seconds (LibreOffice
-  // conversion), every one after that is instant (cached on disk). The
-  // "rendering" hint has an id so its onload handler can hide it again —
-  // previously it stayed visible forever once shown.
+  // conversion), every one after that is instant (cached on disk).
+  // The preview itself is pdf.js's own prebuilt viewer app (viewer.html),
+  // not a hand-rolled canvas renderer — it's loaded in an <iframe>, which
+  // is what gives it the full toolbar (find, page nav, rotate, scroll/
+  // spread modes, print, download) for free, and also means several
+  // instances can sit side by side in the compare view without any of
+  // them sharing state, since each iframe is its own document.
   let bodyBlock;
   if (d.local_zip_path) {
-    const hintId = `hint-${cssEscape(d.tdoc_id)}`;
-    const firstViewHint = d.rendered_path
-      ? ""
-      : `<div class="no-text" id="${hintId}">Rendering for the first time — may take a few seconds…</div>`;
-    bodyBlock = `${firstViewHint}<iframe class="pdf-frame" src="${API}/tdocs/${encodeURIComponent(d.tdoc_id)}/view" onload="document.getElementById('${hintId}')?.remove()"></iframe>`;
+    const viewUrl = `${API}/tdocs/${encodeURIComponent(d.tdoc_id)}/view`;
+    const viewerSrc = `/static/vendor/pdfjs-viewer/web/viewer.html?file=${encodeURIComponent(viewUrl)}`;
+    bodyBlock = `<iframe class="pdfv-frame" src="${viewerSrc}" title="Preview of ${escapeHtml(d.tdoc_id)}"></iframe>`;
   } else if (d.text) {
     bodyBlock = `<div class="detail-text">${escapeHtml(d.text)}</div>`;
   } else {
@@ -209,10 +211,6 @@ function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s;
   return div.innerHTML;
-}
-
-function cssEscape(s) {
-  return s.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
 function clearFilters() {

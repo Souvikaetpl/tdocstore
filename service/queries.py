@@ -67,10 +67,17 @@ def search_tdocs(
     params: list = []
 
     if query:
+        # The search box promises "TDoc number, title, or keyword" — plain
+        # full-text search alone never matches a literal ID like
+        # "R2-2604807" (it isn't part of the tsvector, and a hyphenated
+        # alphanumeric token doesn't tokenize the way title words do), so
+        # an ID match is OR'd in alongside the title/abstract search.
         conditions.append(
+            "(t.tdoc_id ILIKE %s OR "
             "to_tsvector('english', coalesce(t.title,'') || ' ' || coalesce(t.abstract,'')) "
-            "@@ plainto_tsquery('english', %s)"
+            "@@ plainto_tsquery('english', %s))"
         )
+        params.append(f"%{query}%")
         params.append(query)
     if tsg:
         conditions.append("t.tsg = %s")

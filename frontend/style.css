@@ -207,12 +207,12 @@ main {
 }
 .no-text { color: var(--home-muted); font-style: italic; font-size: 13px; }
 
-.pdf-frame {
+.pdfv-frame {
   width: 100%;
   height: 65vh;
   border: 1px solid var(--home-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--home-surface);
 }
 
 .compare-grid { display: flex; gap: 12px; }

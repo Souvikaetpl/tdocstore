@@ -10,3 +10,6 @@ python-dotenv
 fastapi
 uvicorn[standard]
 mcp[cli]
+authlib
+itsdangerous
+bcrypt

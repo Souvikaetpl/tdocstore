@@ -5,26 +5,66 @@ functions, parallel to api/main.py's HTTP layer — no query logic
 duplicated here, same as the plan's shared-service-layer design intended.
 
 Run directly for local stdio use (the normal case — a client launches
-this as a subprocess and talks to it over stdin/stdout, no network port):
+this as a subprocess and talks to it over stdin/stdout, no network port,
+no bearer token, no auth at all — trust comes from "you can launch this
+subprocess", same as before this file grew a second mode):
     python mcp_server.py
+
+Or run it as a real network service (plan §12 item 3 / §13), gated
+either by a personal token pasted into a client's header config, or by
+a real OAuth login+consent redirect for clients (Claude.ai, ChatGPT)
+that only accept a server URL — both paths issue the same kind of
+token and both are revocable the same way (see auth/oauth_provider.py):
+    python mcp_server.py --http
 
 Or explore interactively during development with the SDK's inspector:
     mcp dev mcp_server.py
 """
+import sys
 from dataclasses import asdict
 from typing import Optional
+from urllib.parse import urlparse
 
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.server.mcpserver import MCPServer
 
+from auth import config as auth_config
+from auth.oauth_provider import LocalOAuthProvider
 from service import queries
 
-mcp = MCPServer(
-    name="3gpp-tdoc-replica",
-    instructions=(
-        "Search and browse 3GPP TDocs (meeting documents) and meetings, "
-        "crawled from 3GPP's own public FTP archive. Read-only — no writes."
-    ),
+_INSTRUCTIONS = (
+    "Search and browse 3GPP TDocs (meeting documents) and meetings, "
+    "crawled from 3GPP's own public FTP archive. Read-only — no writes."
 )
+
+
+def _build_server(http_mode: bool) -> MCPServer:
+    if not http_mode:
+        return MCPServer(name="3gpp-tdoc-replica", instructions=_INSTRUCTIONS)
+    # issuer_url/resource_server_url must be THIS server's own origin —
+    # it's where the SDK mounts /authorize, /token, /register, and
+    # /.well-known/oauth-authorization-server (auth_server_provider
+    # below implements what those call into). Derived from the single
+    # shared MCP_SERVER_URL (auth/config.py) so this can never drift
+    # from what /account shows the user as "the MCP server URL".
+    resource_server_url = auth_config.MCP_SERVER_URL
+    issuer_url = urlparse(resource_server_url)._replace(path="").geturl()
+    return MCPServer(
+        name="3gpp-tdoc-replica",
+        instructions=_INSTRUCTIONS,
+        # validate_token_resource=False because these tokens carry no
+        # RFC 8707 resource/audience claim to check.
+        auth=AuthSettings(
+            issuer_url=issuer_url,
+            resource_server_url=resource_server_url,
+            validate_token_resource=False,
+            client_registration_options=ClientRegistrationOptions(enabled=True),
+        ),
+        auth_server_provider=LocalOAuthProvider(),
+    )
+
+
+mcp = _build_server(http_mode="--http" in sys.argv)
 
 
 def _page_dict(page) -> dict:
@@ -109,4 +149,7 @@ def get_stats() -> dict:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    if "--http" in sys.argv:
+        mcp.run(transport="streamable-http", host="127.0.0.1", port=8001)
+    else:
+        mcp.run(transport="stdio")

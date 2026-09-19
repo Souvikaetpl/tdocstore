@@ -91,6 +91,123 @@ SCHEMA_STATEMENTS = [
     # overrides the normally-computed "3GPP<WG>#<n>" display title, since
     # there's no meeting_folder naming convention to derive one from.
     "ALTER TABLE meetings ADD COLUMN IF NOT EXISTS display_title TEXT",
+    # Auth (plan §12). A user's stable identity is separate from how they
+    # signed in — "google" today, "local" for admin-issued test accounts —
+    # specifically so a second sign-in method never requires restructuring
+    # this. status is the admin's revoke switch; sessions.token_hash is
+    # looked up (and status re-checked) on every authenticated request,
+    # not just at login, so a revoke actually takes effect immediately.
+    """
+    CREATE TABLE IF NOT EXISTS users (
+        id            SERIAL PRIMARY KEY,
+        email         TEXT NOT NULL UNIQUE,
+        display_name  TEXT,
+        is_admin      BOOLEAN NOT NULL DEFAULT false,
+        status        TEXT NOT NULL DEFAULT 'active',
+        created_at    TIMESTAMPTZ DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS identities (
+        id                SERIAL PRIMARY KEY,
+        user_id           INTEGER NOT NULL REFERENCES users(id),
+        provider          TEXT NOT NULL,
+        provider_user_id  TEXT NOT NULL,
+        password_hash     TEXT,
+        created_at        TIMESTAMPTZ DEFAULT now(),
+        UNIQUE(provider, provider_user_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS sessions (
+        id          SERIAL PRIMARY KEY,
+        token_hash  TEXT NOT NULL UNIQUE,
+        user_id     INTEGER NOT NULL REFERENCES users(id),
+        created_at  TIMESTAMPTZ DEFAULT now(),
+        expires_at  TIMESTAMPTZ NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)",
+    # Personal MCP tokens (plan §12 item 3), independent of website
+    # sessions on purpose — revoking one must not require touching the
+    # other. revoked_at is a second, narrower lever than users.status:
+    # disabling the whole account blocks this token too (the lookup
+    # joins to users and checks status), but revoking just this token
+    # leaves the account's website sessions untouched.
+    """
+    CREATE TABLE IF NOT EXISTS mcp_tokens (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id),
+        token_hash  TEXT NOT NULL UNIQUE,
+        name        TEXT,
+        created_at  TIMESTAMPTZ DEFAULT now(),
+        revoked_at  TIMESTAMPTZ
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mcp_tokens_token_hash ON mcp_tokens(token_hash)",
+    # A minimal OAuth Authorization Server, layered on top of the same
+    # login/mcp_tokens system above — for clients that only accept a
+    # server URL (Claude.ai/ChatGPT-style connectors) and have no field
+    # to paste a personal token into. Those clients expect to redirect
+    # the user through a real login+consent step and receive a token
+    # automatically; the token they end up with is still just an
+    # mcp_tokens row, so the exact same revocation/status checks apply
+    # to it as to a self-service-generated one.
+    """
+    CREATE TABLE IF NOT EXISTS oauth_clients (
+        client_id      TEXT PRIMARY KEY,
+        client_secret  TEXT,
+        redirect_uris  TEXT,
+        client_name    TEXT,
+        created_at     TIMESTAMPTZ DEFAULT now()
+    )
+    """,
+    # Added after the table above — RFC 7591's registration handler
+    # defaults this to "client_secret_post" for any client that doesn't
+    # specify one, and the token endpoint re-checks it against whatever
+    # get_client() returns; leaving it unstored meant every client's
+    # auth method silently reverted to None the moment it was reloaded.
+    "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS token_endpoint_auth_method TEXT",
+    # A separate lever from users.status: an admin can block a specific
+    # user's MCP access — self-service tokens AND the OAuth flow both
+    # refuse to mint a new one while this is false — without touching
+    # their website login at all. Revoking one token alone can't do
+    # this, since the account holder can just re-approve a fresh one
+    # through the same consent flow as long as their account is active.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT true",
+    # Short-lived, single-use: carries one /authorize request's params
+    # from the SDK's own /authorize endpoint to our own login+consent
+    # page (see auth/oauth_provider.py's authorize()), since a
+    # provider's authorize() only returns a redirect URL — it doesn't
+    # get to run any UI itself.
+    """
+    CREATE TABLE IF NOT EXISTS oauth_authorize_requests (
+        id              TEXT PRIMARY KEY,
+        client_id       TEXT NOT NULL,
+        redirect_uri    TEXT NOT NULL,
+        code_challenge  TEXT NOT NULL,
+        state           TEXT,
+        scopes          TEXT,
+        created_at      TIMESTAMPTZ DEFAULT now(),
+        expires_at      TIMESTAMPTZ NOT NULL
+    )
+    """,
+    # Minted once the user approves the consent screen; exchanged for a
+    # real access token by the SDK's /token endpoint. used=true after
+    # exchange so a leaked/replayed code can't be spent twice (RFC 6749
+    # §4.1.2 treats a code as single-use).
+    """
+    CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+        code            TEXT PRIMARY KEY,
+        client_id       TEXT NOT NULL,
+        user_id         INTEGER NOT NULL REFERENCES users(id),
+        code_challenge  TEXT NOT NULL,
+        redirect_uri    TEXT NOT NULL,
+        scopes          TEXT,
+        expires_at      TIMESTAMPTZ NOT NULL,
+        used            BOOLEAN NOT NULL DEFAULT false
+    )
+    """,
 ]
 
 _TDOC_FIELDS = [

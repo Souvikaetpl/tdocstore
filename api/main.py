@@ -10,7 +10,11 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
+from auth import config as auth_config
+from auth.consent_routes import router as oauth_consent_router
+from auth.routes import router as auth_router
 from crawler import db as crawler_db
 from crawler.render import render_to_pdf
 from crawler import config as crawler_config
@@ -29,6 +33,14 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 _RENDER_SEMAPHORE = threading.Semaphore(2)
 
 app = FastAPI(title="3GPP TDoc Replica API")
+
+# Only backs the transient state/nonce during the Google OAuth handshake
+# (authlib's Starlette integration expects request.session) — unrelated
+# to our own login sessions (auth/queries.py), which live in Postgres as
+# opaque tokens, not a signed cookie.
+app.add_middleware(SessionMiddleware, secret_key=auth_config.SESSION_MIDDLEWARE_SECRET)
+app.include_router(auth_router)
+app.include_router(oauth_consent_router)
 
 
 def _page_dict(page: Page) -> dict:
@@ -165,6 +177,20 @@ def index():
 @app.get("/search")
 def search_page():
     return FileResponse(FRONTEND_DIR / "search.html")
+
+
+@app.get("/account")
+def account_page():
+    return FileResponse(FRONTEND_DIR / "account.html")
+
+
+@app.get("/admin")
+def admin_page():
+    # The page itself just checks /auth/me client-side to decide what to
+    # show — real enforcement is server-side on the /auth/admin/* routes
+    # (require_admin), so serving this file to a non-admin leaks nothing
+    # beyond "this page exists".
+    return FileResponse(FRONTEND_DIR / "admin.html")
 
 
 # Mounted last and at "/" so it never shadows the /api/* routes above —

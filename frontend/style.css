@@ -22,10 +22,89 @@ body {
 }
 
 header {
+  position: relative;
   padding: 12px 16px;
   border-bottom: 1px solid var(--home-border);
   background: var(--home-surface);
 }
+
+.auth-widget {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.auth-email { color: var(--home-muted); }
+.auth-signin, .auth-signout {
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  color: var(--home-text);
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.auth-signin:hover, .auth-signout:hover { background: var(--home-accent-soft); }
+.auth-admin-link {
+  color: var(--home-accent);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.auth-admin-link:hover { text-decoration: underline; }
+/* .home-topbar is already a flex row (just .brand until now) — the
+   plain header's absolute positioning above would ignore its own
+   padding, so this becomes a normal flex item pushed to the far right
+   instead. */
+.home-topbar { position: relative; }
+.home-topbar .auth-widget { position: static; margin-left: auto; }
+
+.auth-testlink {
+  background: none;
+  border: none;
+  color: var(--home-muted);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.auth-testform {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  border-radius: 4px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 200px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  z-index: 5;
+}
+.auth-testform input {
+  border: 1px solid var(--home-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+.auth-testform button[type="submit"] {
+  background: var(--home-accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.auth-testform button[type="submit"]:hover { background: var(--home-accent-hover); }
+.auth-testform-error { color: #b3413d; font-size: 12px; }
 
 header h1 {
   font-size: 16px;
@@ -214,6 +293,63 @@ main {
   border-radius: 4px;
   background: var(--home-surface);
 }
+
+.admin-main { padding: 20px; max-width: 720px; margin: 0 auto; }
+.admin-section { margin-bottom: 28px; }
+.admin-section h2 { font-size: 15px; margin: 0 0 10px 0; }
+.admin-create-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-create-form input {
+  border: 1px solid var(--home-border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.admin-create-form button {
+  background: var(--home-accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.admin-create-form button:hover { background: var(--home-accent-hover); }
+.admin-error { color: #b3413d; font-size: 13px; margin-top: 8px; }
+.admin-users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-users-table th, .admin-users-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--home-border);
+}
+.admin-users-table button {
+  background: var(--home-surface);
+  border: 1px solid var(--home-border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.admin-users-table button:hover { background: var(--home-accent-soft); }
+.account-hint { color: var(--home-muted); font-size: 13px; max-width: 520px; }
+#newTokenBtn {
+  background: var(--home-accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+#newTokenBtn:hover { background: var(--home-accent-hover); }
+.account-token-box {
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--home-accent-soft);
+  border: 1px solid var(--home-border);
+  border-radius: 4px;
+}
+.account-token-warning { color: #b3413d; font-size: 12px; margin-bottom: 6px; }
+.account-token-box code { word-break: break-all; font-size: 13px; }
 
 .compare-grid { display: flex; gap: 12px; }
 .compare-col { flex: 1; min-width: 0; background: var(--home-surface); border: 1px solid var(--home-border); border-radius: 4px; padding: 10px; }

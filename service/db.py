@@ -11,4 +11,4 @@ from crawler import config
 
 
 def connect() -> psycopg.Connection:
-    return psycopg.connect(config.DATABASE_URL)
+    return psycopg.connect(config.READONLY_DATABASE_URL)

@@ -8,6 +8,11 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+# Falls back to DATABASE_URL so local dev works even before the
+# read-only role exists — service/db.py is the only thing that reads
+# this; the crawler itself always writes via DATABASE_URL above.
+READONLY_DATABASE_URL = os.environ.get("READONLY_DATABASE_URL", DATABASE_URL)
+
 BASE_URL = "https://www.3gpp.org/ftp"
 
 # tsg -> { short_name: ftp_path_segment }

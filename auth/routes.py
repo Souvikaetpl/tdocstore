@@ -10,6 +10,7 @@ from . import queries
 from .deps import SESSION_COOKIE_NAME, get_current_user, require_admin, require_user
 from .google_oauth import oauth
 from .models import User
+from .rate_limit import is_failed_login_throttled, rate_limit, record_failed_login
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -37,7 +38,10 @@ async def google_login(request: Request, next: Optional[str] = None):
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
-@router.get("/google/callback", name="google_callback")
+@router.get(
+    "/google/callback", name="google_callback",
+    dependencies=[Depends(rate_limit(20, 60, "google_callback"))],
+)
 async def google_callback(request: Request):
     token = await oauth.google.authorize_access_token(request)
     userinfo = token.get("userinfo") or await oauth.google.userinfo(token=token)
@@ -88,11 +92,20 @@ class LocalLoginBody(BaseModel):
     password: str
 
 
-@router.post("/local/login")
+@router.post("/local/login", dependencies=[Depends(rate_limit(10, 60, "local_login"))])
 def local_login(body: LocalLoginBody, response: Response):
+    # Keyed on the attempted username itself, checked before touching
+    # the database — catches a slow/distributed brute force that
+    # rotates source IPs to dodge the per-IP throttle above, which the
+    # per-IP check alone can't.
+    if is_failed_login_throttled(body.username):
+        raise HTTPException(
+            status_code=429, detail="Too many failed attempts for this account — try again in a few minutes"
+        )
     with db.session() as conn:
         user = queries.authenticate_local(conn, body.username, body.password)
         if user is None:
+            record_failed_login(body.username)
             raise HTTPException(status_code=401, detail="Invalid username or password")
         session_token = queries.create_session(conn, user.id)
 
@@ -109,7 +122,7 @@ class CreateTestAccountBody(BaseModel):
     display_name: Optional[str] = None
 
 
-@router.post("/admin/test-accounts")
+@router.post("/admin/test-accounts", dependencies=[Depends(rate_limit(20, 60, "create_test_account"))])
 def create_test_account(body: CreateTestAccountBody, admin: User = Depends(require_admin)):
     with db.session() as conn:
         user = queries.create_local_test_account(conn, body.username, body.password, body.display_name)

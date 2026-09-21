@@ -7,18 +7,20 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from auth import config as auth_config
 from auth.consent_routes import router as oauth_consent_router
+from auth.deps import get_current_user, require_user
+from auth.models import User
 from auth.routes import router as auth_router
 from crawler import db as crawler_db
 from crawler.render import render_to_pdf
 from crawler import config as crawler_config
-from service import queries
+from service import bookmarks, queries, search_history
 from service.models import Page
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -73,11 +75,22 @@ def search_tdocs(
     source: Optional[str] = None,
     offset: int = 0,
     limit: int = Query(default=20, le=100),
+    user: Optional[User] = Depends(get_current_user),
 ):
     page = queries.search_tdocs(
         query=q, tsg=tsg, wg_short=wg, meeting_folder=meeting, doc_type=doc_type,
         specification=specification, source=source, offset=offset, limit=limit,
     )
+    # Automatic, not an explicit save — only a fresh search (offset 0)
+    # with at least one real filter counts; pagination clicks and an
+    # empty/cleared search both stay out of the history entirely.
+    if user is not None and offset == 0:
+        params = {k: v for k, v in {
+            "q": q, "tsg": tsg, "wg": wg, "meeting": meeting, "source": source, "doc_type": doc_type,
+        }.items() if v}
+        if params:
+            with crawler_db.session() as conn:
+                search_history.record_search(conn, user.id, params)
     return _page_dict(page)
 
 
@@ -88,11 +101,48 @@ def compare_tdocs(ids: list[str] = Query(...)):
 
 
 @app.get("/api/tdocs/{tdoc_id}")
-def get_tdoc(tdoc_id: str):
+def get_tdoc(tdoc_id: str, user: Optional[User] = Depends(get_current_user)):
     detail = queries.get_tdoc(tdoc_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"TDoc {tdoc_id} not found")
-    return asdict(detail)
+    data = asdict(detail)
+    if user is not None:
+        with crawler_db.session() as conn:
+            data["bookmarked"] = bookmarks.is_bookmarked(conn, user.id, tdoc_id)
+    return data
+
+
+@app.post("/api/bookmarks/{tdoc_id}")
+def add_bookmark(tdoc_id: str, user: User = Depends(require_user)):
+    if queries.get_tdoc(tdoc_id) is None:
+        raise HTTPException(status_code=404, detail=f"TDoc {tdoc_id} not found")
+    with crawler_db.session() as conn:
+        bookmarks.add_bookmark(conn, user.id, tdoc_id)
+    return {"ok": True}
+
+
+@app.delete("/api/bookmarks/{tdoc_id}")
+def remove_bookmark(tdoc_id: str, user: User = Depends(require_user)):
+    with crawler_db.session() as conn:
+        bookmarks.remove_bookmark(conn, user.id, tdoc_id)
+    return {"ok": True}
+
+
+@app.get("/api/bookmarks")
+def list_bookmarks(
+    user: User = Depends(require_user),
+    offset: int = 0,
+    limit: int = Query(default=20, le=100),
+):
+    with crawler_db.session() as conn:
+        page = bookmarks.list_bookmarks(conn, user.id, offset=offset, limit=limit)
+    return _page_dict(page)
+
+
+@app.get("/api/search-history")
+def get_search_history(user: User = Depends(require_user)):
+    with crawler_db.session() as conn:
+        return search_history.list_recent(conn, user.id)
 
 
 @app.get("/api/tdocs/{tdoc_id}/download")
@@ -182,6 +232,11 @@ def search_page():
 @app.get("/account")
 def account_page():
     return FileResponse(FRONTEND_DIR / "account.html")
+
+
+@app.get("/bookmarks")
+def bookmarks_page():
+    return FileResponse(FRONTEND_DIR / "bookmarks.html")
 
 
 @app.get("/admin")

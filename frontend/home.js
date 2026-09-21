@@ -237,6 +237,31 @@ async function loadGrid(tsg) {
   }).join("");
 }
 
+const PARAM_LABELS = { q: "keyword", tsg: "TSG", wg: "group", meeting: "meeting", source: "source", doc_type: "type" };
+
+function describeParams(params) {
+  return Object.entries(params).map(([k, v]) => `${PARAM_LABELS[k] || k}: ${v}`).join(", ");
+}
+
+// Replaces the old static "Popular searches" row — hidden entirely for
+// a signed-out visitor or a signed-in one with no history yet, rather
+// than falling back to a hardcoded list (see /search's own copy of
+// this same logic for the other place it appears).
+async function loadRecentSearchesHome() {
+  const container = el("recentSearchesHome");
+  const res = await fetch(`${API}/search-history`);
+  if (!res.ok) return;
+  const items = await res.json();
+  if (items.length === 0) return;
+
+  container.hidden = false;
+  container.innerHTML = `<span class="recent-searches-label">Recent searches:</span> ` + items.map(item => `
+    <a class="recent-search-chip" href="/search?${new URLSearchParams(item.params).toString()}">
+      ${escapeHtml(describeParams(item.params))}
+    </a>
+  `).join("");
+}
+
 async function loadStats() {
   const res = await fetch(`${API}/stats`);
   const s = await res.json();
@@ -262,3 +287,4 @@ el("heroSearchForm").addEventListener("submit", (e) => {
 
 loadStats();
 loadGrid(activeTsg);
+loadRecentSearchesHome();

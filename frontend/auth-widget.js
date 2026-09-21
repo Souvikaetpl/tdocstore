@@ -8,6 +8,7 @@ async function mountAuthWidget(containerId) {
   if (data.signed_in) {
     el.innerHTML = `
       ${data.is_admin ? `<a class="auth-admin-link" href="/admin">Admin</a>` : ""}
+      <a class="auth-admin-link" href="/bookmarks">Bookmarks</a>
       <a class="auth-admin-link" href="/account">Account</a>
       <span class="auth-email">${escapeHtml(data.display_name || data.email)}</span>
       <button type="button" class="auth-signout">Sign out</button>`;

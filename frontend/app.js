@@ -78,6 +78,7 @@ async function search(offset = 0) {
   state.items = data.items;
   state.total = data.total;
   renderResults();
+  if (offset === 0) loadRecentSearches();
 }
 
 function renderResults() {
@@ -153,6 +154,15 @@ function renderDetailCard(d) {
     ? `<a href="${API}/tdocs/${encodeURIComponent(d.tdoc_id)}/download">Download original</a>`
     : `<span class="no-text">Not downloaded yet</span>`;
 
+  // d.bookmarked is only present when a signed-in user's cookie was
+  // sent with the /api/tdocs/{id} request (see api/main.py) — omitted
+  // entirely for a signed-out visitor, so the button just doesn't
+  // render rather than showing something that would 401 on click.
+  const bookmarkBtn = d.bookmarked === undefined
+    ? ""
+    : `<button type="button" class="bookmark-toggle-btn" data-id="${escapeHtml(d.tdoc_id)}"
+         data-bookmarked="${d.bookmarked}">${d.bookmarked ? "★ Bookmarked" : "☆ Bookmark"}</button>`;
+
   // Prefer the rendered PDF (real formatting) over the flat extracted
   // text, matching TDocHamster's preview. /view renders on demand, so any
   // downloaded TDoc gets a PDF attempt — not just ones already rendered;
@@ -179,7 +189,7 @@ function renderDetailCard(d) {
     <div class="tdoc-id">${d.tdoc_id}</div>
     <div class="detail-title">${escapeHtml(d.title || "(no title)")}</div>
     <div class="detail-meta">${metaRows.map(([k, v]) => `<b>${k}:</b> ${escapeHtml(String(v))}`).join("<br>")}</div>
-    <div class="detail-actions">${downloadLink}</div>
+    <div class="detail-actions">${downloadLink} ${bookmarkBtn}</div>
     ${bodyBlock}
   `;
 }
@@ -232,6 +242,53 @@ el("prevBtn").addEventListener("click", () => search(Math.max(0, state.offset - 
 el("nextBtn").addEventListener("click", () => search(state.offset + state.limit));
 el("compareBtn").addEventListener("click", compareSelected);
 
+const PARAM_LABELS = { q: "keyword", tsg: "TSG", wg: "group", meeting: "meeting", source: "source", doc_type: "type" };
+
+function describeParams(params) {
+  return Object.entries(params).map(([k, v]) => `${PARAM_LABELS[k] || k}: ${v}`).join(", ");
+}
+
+// Automatic, not an explicit save — the server records history itself
+// on every fresh search (see api/main.py's search_tdocs route), so
+// this just displays whatever's already there. Called after every
+// search(0) below, not just on page load, so a search you just ran
+// shows up immediately rather than only after a reload.
+async function loadRecentSearches() {
+  const container = el("recentSearches");
+  const res = await fetch(`${API}/search-history`);
+  if (!res.ok) {
+    container.hidden = true;
+    return;
+  }
+  const items = await res.json();
+  if (items.length === 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = `<span class="recent-searches-label">Recent:</span> ` + items.map(item => `
+    <a class="recent-search-chip" href="/search?${new URLSearchParams(item.params).toString()}">
+      ${escapeHtml(describeParams(item.params))}
+    </a>
+  `).join("");
+}
+
+// Delegated rather than wired per-render: renderDetailCard runs for
+// both the single-document view and each column of the compare view,
+// and returns a plain HTML string (no post-insertion mount step),
+// so one listener on the shared container covers every instance.
+el("previewContent").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".bookmark-toggle-btn");
+  if (!btn) return;
+  const tdocId = btn.dataset.id;
+  const nowBookmarked = btn.dataset.bookmarked !== "true";
+  await fetch(`${API}/bookmarks/${encodeURIComponent(tdocId)}`, {
+    method: nowBookmarked ? "POST" : "DELETE",
+  });
+  btn.dataset.bookmarked = String(nowBookmarked);
+  btn.textContent = nowBookmarked ? "★ Bookmarked" : "☆ Bookmark";
+});
+
 // Lets the homepage deep-link straight into a filtered result set, e.g.
 // /search.html?tsg=ran&wg=RAN1&meeting=TSGR1_126 from a meeting card.
 async function initFromUrl() {
@@ -240,6 +297,8 @@ async function initFromUrl() {
   const tsg = p.get("tsg");
   const wg = p.get("wg");
   const meeting = p.get("meeting");
+  const source = p.get("source");
+  const docType = p.get("doc_type");
 
   if (q) el("q").value = q;
   if (tsg && GROUPS[tsg]) {
@@ -249,6 +308,11 @@ async function initFromUrl() {
     await refreshMeetingFilter();
     if (meeting) el("meeting").value = meeting;
   }
+  // These two were missing before saved searches needed a full,
+  // lossless round-trip through the URL — a saved search with a
+  // source or doc_type filter would otherwise silently drop it on Run.
+  if (source) el("source").value = source;
+  if (docType) el("doc_type").value = docType;
   search(0);
 }
 

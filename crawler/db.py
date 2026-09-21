@@ -208,6 +208,36 @@ SCHEMA_STATEMENTS = [
         used            BOOLEAN NOT NULL DEFAULT false
     )
     """,
+    # First personalization table (plan §12). User-generated data, not
+    # crawled content — reads and writes both go through the
+    # full-privilege connection (crawler.db, same as users/sessions/
+    # mcp_tokens above), never through service/db.py's read-only role;
+    # that role's SELECT-only grant is specifically about protecting
+    # the crawled tdocs/meetings data, not about this.
+    """
+    CREATE TABLE IF NOT EXISTS bookmarks (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id),
+        tdoc_id     TEXT NOT NULL REFERENCES tdocs(tdoc_id),
+        created_at  TIMESTAMPTZ DEFAULT now(),
+        UNIQUE(user_id, tdoc_id)
+    )
+    """,
+    # Second personalization table (plan §12) — same rationale as
+    # bookmarks above: user-generated, full-privilege connection, never
+    # the read-only role. Automatic, not an explicit save action —
+    # every fresh search a signed-in user runs (not every pagination
+    # click, not an empty/cleared search) gets recorded here, so a
+    # small "Recent searches" list can just show what actually
+    # happened rather than what someone remembered to save.
+    """
+    CREATE TABLE IF NOT EXISTS search_history (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id),
+        params      TEXT NOT NULL,
+        created_at  TIMESTAMPTZ DEFAULT now()
+    )
+    """,
 ]
 
 _TDOC_FIELDS = [

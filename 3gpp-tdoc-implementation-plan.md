@@ -242,7 +242,9 @@ Metadata counts outside RAN2 are low relative to TDoc count because only the sma
 | Non-ASCII text | Stays readable through extraction and normalization |
 | Interrupted download, re-run | Resumes without re-downloading completed files (already true — verified) |
 
-Not yet run: interrupted-download recovery under real network failure (only tested via the "already exists" skip path so far).
+**✅ Interrupted-download recovery under real network failure — now tested, not just the "already exists" skip path.** Verified with a raw TCP server under our control, forcing genuine connection drops/resets (`WinError 10054`/`10061`, not mocked exceptions) at three points: mid-stream during download, on every one of the 3 retry attempts (sustained outage), and before any HTTP response is received at all (connection refused). In every case `dest_path` is correctly never created — only `http_client.py`'s atomic `tmp_path.replace(dest_path)` on full success creates it — so `ingest.py`'s `local_path.exists()` check correctly retries on the next run, and a subsequent run against a healthy server recovers and produces byte-correct output.
+
+**Found and fixed while testing**: a fully-failed download (all retries exhausted) left its `.part` temp file orphaned on disk — never mistaken for a real download, but genuine disk-hygiene debt that would accumulate during any sustained 3GPP-side outage. Fixed in `crawler/http_client.py`: `tmp_path` is now computed once upfront (rather than only after a response is received) and removed on every failed attempt, not just successful ones.
 
 ---
 
@@ -314,6 +316,8 @@ Verified end-to-end with a temporary account: two different fresh searches both 
 
 **What doesn't change regardless of the above**: this reopens the Auth question from §3, but not the Storage/Kong/Studio parts of that reasoning — self-hosted Supabase's *Auth* module (GoTrue) was evaluated against building directly on the existing Postgres, and the latter is what got built; adopting Supabase wholesale for Storage/Kong/Studio is still not justified by this alone (§3 unchanged on that point).
 
+**✅ SSL/TLS network-interception investigation — closed, no persistent issue found.** Some months earlier, crawling `www.3gpp.org` had intermittently failed with `[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate`, worked around at the time only in throwaway diagnostic scripts (`verify=False`), never in the real crawler (`crawler/http_client.py` always used, and still uses, `httpx.Client()`'s default — full verification on). Re-investigated directly: pulled the actual certificate the server presents (real cert, issued by Google Trust Services for `3gpp.org`/`*.3gpp.org`, valid dates, nothing forged or proxy-like), confirmed a plain fully-verified `httpx.get()` succeeds, and confirmed the crawler's own `HttpClient` succeeds against the exact two URLs that had failed before, unmodified. `certifi` is current. Conclusion: the earlier failure was environment/network-dependent at that moment (a different network in the path that day, or 3GPP mid-rotating the cert), not a lasting defect in this codebase — nothing to fix, no `verify=False` anywhere in real code, closing the item.
+
 ---
 
 ## 13. MCP server: production hardening & deployment (new in v7 — confirmed target, not a fallback option)
@@ -377,3 +381,109 @@ The project owner has confirmed this project is going to production, not staying
 - **(v7: resolved, was open in v6) Building auth before the §12 decisions were made** — no longer a risk: §12's four questions are now answered (personalization, Google sign-in first, MCP tokens tied to login, open signup), so there's a concrete shape to build against rather than a guess. The follow-on risk below still applies once building starts.
 - **(New, v6; rate-limiting resolved after v7) A public-facing login surface is new attack surface this project has never had.** Choosing Google sign-in (§12) deliberately minimizes this for Google-linked accounts — no password for this project to ever store, reset, or have stolen — but admin-issued test accounts (§12 item 5) *are* real passwords in our own database, which is exactly what the OAuth-callback/local-login/test-account-creation rate limiting (§12) now guards, including a username-specific throttle on `/auth/local/login` distinct from a plain per-IP one. Session/token expiry and revocation are also done (§12: sessions and MCP tokens are both revocable, checked per-request). Not yet addressed: public signup (§12, decided open) means anyone can create a Google-linked account, so basic anti-abuse — capping how many MCP tokens or saved searches one account can create — is still worth having even without password-related risk, and isn't built.
 - **(New, v6) LibreOffice render pipeline hangs on specific document content** — confirmed, not hypothetical (§14): a Table-of-Contents field filtered by a custom paragraph style causes LibreOffice's layout engine to hang rather than fail fast. Mitigated by a 40-second timeout cap and per-conversion isolated profiles (§14); documents that hit this still end up with no rendered preview (the timeout makes them fail, not succeed) — a genuine content-based gap accepted for now, not a crash risk.
+
+---
+
+## 16. Production deployment plan (decided, not yet executed)
+
+Full plan for putting the working local system (Postgres, the crawled corpus, the FastAPI app/API, the MCP server) on the public internet. §16.2 records every shape that was evaluated and why each was rejected — the short version is that the chosen one is the only option requiring **zero code changes**, and it also happens to be the cheapest.
+
+### 16.1 What's actually being deployed, measured (not guessed)
+
+Measured directly rather than assumed, since the earlier R2 recommendation below was itself based on an unmeasured guess and had to be corrected once real numbers were pulled:
+
+| Component | Size |
+|---|---|
+| Postgres database (`tdocs`, `meetings`, `users`, `sessions`, `bookmarks`, `search_history`, etc.) | 31 MB |
+| `data/raw` (original downloaded zips) | 7.33 GB |
+| `data/text` (extracted text) | 432 MB |
+| `data/rendered` (rendered documents) | 13.04 GB |
+| **Total corpus** | **~20.8 GB** |
+
+### 16.2 Options considered, and why each was accepted or rejected
+
+**Rejected: the project owner's own PC as the server, reached via Cloudflare Tunnel.**
+Technically works (`cloudflared` exposes a `localhost` service with no open ports needed), and costs nothing — but uptime becomes tied to a personal machine staying powered on, awake, and connected 24/7, which the project owner didn't want. Ruled out by direct choice, not a technical blocker.
+
+**Rejected: fully serverless on Cloudflare (Workers + Hyperdrive + R2), no VPS at all.**
+Investigated seriously, not dismissed on assumption:
+- Cloudflare Workers now runs real Python and supports FastAPI (via a Pyodide/WASM runtime), which sounded promising at first.
+- But the crawler is a long-running batch job that walks 3GPP's FTP archive and writes many files to local disk — Workers execute per-request with bounded CPU time and no persistent background process or local disk. Fitting the crawler into that model would mean rewriting it around Cron Triggers/Queues in small chunked steps — a real rearchitecture of code that already works, not a deployment change.
+- The project's actual dependencies (`psycopg[binary]`, `bcrypt`, `lxml` — all C-extension packages) have unverified compatibility with that Pyodide sandbox; nothing in Cloudflare's own docs confirmed they're supported, and this project's standing rule is to never assert correctness without testing it live.
+- Cloudflare has no managed Postgres of its own — Hyperdrive is only a connection-pooling proxy in front of a Postgres that still has to run somewhere else, so this path doesn't even remove the need for an external database.
+- Conclusion: rejected. Bigger risk, for no real benefit at this project's scale, and the project owner confirmed the actual goal was just "don't want my own PC to be the server," not "specifically Cloudflare for everything" — which a VPS solves directly without any of the above risk.
+
+**Rejected (after measuring): moving the file corpus to Cloudflare R2.**
+Initially recommended as good practice before the corpus was actually measured. Once measured (§16.1: ~20.8 GB total), it fits comfortably inside a basic VPS's *included* disk allowance (25–40 GB on any standard small VPS plan), with headroom for continued growth. Introducing R2 would mean rewriting the file-serving code path to talk to an S3-compatible API and running a migration, for a corpus that already fits where it would run anyway. Not worth the added moving part at this scale — revisit only if the corpus grows far beyond current size (§16.6).
+
+**Rejected: Cloudflare Pages for the frontend.**
+Not applicable — the frontend is served directly by the FastAPI app's own page routes (`api/main.py`), not as a standalone static site. Splitting it out would add a second deploy target for no benefit at this traffic scale.
+
+**Rejected: Cloudflare Containers** (evaluated separately from Workers, because it's the one Cloudflare compute product that *could* run this code unchanged).
+Containers went GA in April 2026 and run standard Docker images with a real Linux toolchain — so unlike the Workers WASM sandbox, `psycopg`/`bcrypt`/`lxml` and even LibreOffice would all work. It disqualifies itself on storage instead, per Cloudflare's own platform docs: *"All disk is ephemeral. When a Container instance goes to sleep, the next time it is started, it will have a fresh disk as defined by its container image."* Concretely against this project: the largest instance type tops out at 20 GB disk (our corpus is already ~20.8 GB) **and that disk is wiped on every sleep**, with a default 10-minute inactivity timeout. Postgres can't live there either (data loss on sleep), and Hyperdrive — Cloudflare's Postgres accelerator — explicitly doesn't work with Containers, only with Workers. Net: it would still require an external Postgres, an R2 migration with a file-serving rewrite, and crawler restructuring, while costing $5/month minimum (Workers Paid) — i.e. more money *and* six changes' worth of work versus a VPS that runs the code as-is.
+
+**Rejected: hybrid shapes (Cloudflare compute + Supabase Postgres + R2 or NAS storage).**
+Considered because separating storage from compute is a reasonable instinct. Two findings killed it:
+- **Supabase's free tier pauses a project after 7 days of inactivity** — the Postgres instance spins down, the first request after takes 10–30s to cold-start, and it stays unreachable until manually restored from the dashboard. Disqualifying for a public site; avoiding it means Supabase Pro at ~$25/month.
+- **Storage-on-NAS in this shape is the worst variant of all**: every PDF/zip request would travel home-NAS → Cloudflare → visitor (the heaviest payloads over the slowest link), the crawler would write files over the internet to a home connection instead of local disk, and it reintroduces the exact home-internet dependency that dropping the NAS was meant to remove — while now also paying for cloud compute.
+- Beyond cost, the structural problem is latency: splitting compute from Postgres means **every search query becomes a network round trip**, where it's currently local and sub-millisecond. That's a direct regression to this project's core feature, paid for with six code changes.
+- **The version of this idea that does have merit** — VPS (app + Postgres co-located) + R2 for files only + Cloudflare edge — is one change, not six, and is already captured in §16.6 as the thing to do *if and when* the corpus outgrows the VPS disk. Not before.
+
+**Shelved, not rejected: the project owner's own UGREEN NASync DXP4800 Plus (8TB, Docker-capable, UPS-backed), reached via Cloudflare Tunnel.**
+Was briefly the chosen path — genuinely a strong fit on paper (24/7-purpose-built hardware, already UPS-backed, 8TB makes the corpus a non-issue, $0/month recurring). Set aside by direct owner decision ("not an option for now"), not for any technical flaw found in it. Left documented here in case it's revisited later, rather than deleted.
+
+**Chosen: a cloud VPS, with Cloudflare in front as network/edge layer — specifically Oracle Cloud's "Always Free" ARM tier first, Hetzner CX23 as the paid fallback.**
+This is the §16.2 VPS option from above, now the active plan rather than a superseded one. Compared live against the alternatives (Hetzner, DigitalOcean, Vultr, Contabo):
+- **Oracle Cloud "Always Free"** — 2 ARM OCPUs / 12 GB RAM / 200 GB disk / 10 TB egress, **genuinely $0/month forever**, not a trial. Vastly exceeds this project's measured needs (§16.1: ~21 GB corpus, 31 MB DB).
+- **Two Oracle-specific risks, and one action that resolves both.** (a) *Capacity*: free-tier ARM instances are notoriously hard to actually provision — "out of capacity" errors are common. (b) *Idle reclamation*: Oracle may reclaim an Always Free instance if, over a rolling 7-day window, CPU **and** network **and** memory (memory applies to A1/ARM shapes specifically) all sit below 20% at the 95th percentile — plausible for a low-traffic site whose crawler only runs briefly each night, since a short burst barely moves a 7-day 95th-percentile figure. **Both are resolved by converting the account to Pay As You Go**: PAYG accounts are exempt from idle reclamation entirely, rarely hit the capacity errors, get Oracle Support access, and — critically — **still pay $0 as long as usage stays within Always Free limits**. The one caveat that comes with it: a card on file means there's no hard stop against charges if something outside the free limits is ever provisioned, where a pure Free Tier account simply cannot bill you. Mitigate with a $1 budget alert set immediately after upgrading, and by confirming "Always Free eligible" on anything created.
+- **Note on the crawler's cron job**: there is no cron-specific problem on either Oracle or Hetzner — cron is standard Linux and works normally on both. The Oracle concern above is about the *instance looking idle*, not about the job failing. Once on PAYG that concern disappears, leaving only ordinary operational monitoring (did the run complete, did it error, how many documents did it process) — and even that is low-stakes here, because the crawler is **idempotent** (§6): a missed or failed run is fully recovered by the next one, with no manual repair and no risk of corruption.
+- **Verified, not assumed, that ARM doesn't break this project**: every native/compiled Python dependency (`psycopg[binary]`, `bcrypt`, `lxml`, `uvloop`, `httptools`, `watchfiles`, `cryptography`) has published `manylinux_aarch64` wheels on PyPI (checked directly), so `pip install` gets prebuilt binaries, no compiling from source. LibreOffice (the one external binary this project shells out to, `crawler/render.py`/`crawler/extract.py`) is available via standard `apt install libreoffice` on ARM64, and `crawler/config.py`'s `_find_soffice()` already checks Linux paths (`/usr/bin/soffice`, `/usr/lib/libreoffice/program/soffice`) alongside Windows ones — no code change needed. The one thing worth actually measuring after deploy, not assuming: whether LibreOffice render speed on Oracle's ARM cores stays comfortably under the existing 40-second timeout cap (§14) — Ampere A1 gives dedicated (not shared/throttled) cores, so this is more likely to be fine than not, but it's a "verify live," not a guess.
+- **Fallback: Hetzner CX23** — 2 vCPU / 4 GB / 40 GB disk, ~€5.99/month (~$7), x86, no ARM-compatibility question at all. Used only if Oracle's free-tier capacity genuinely can't be obtained after a real attempt.
+- DigitalOcean/Vultr (~$24/month for equivalent specs) and Contabo (cheap but a known reputation for oversold hardware) were compared and ruled out as worse value than either of the above for this project's scale.
+
+### 16.3 What runs where
+
+**On the VPS** (Oracle Cloud Always Free ARM instance, or Hetzner CX23 if that's unavailable):
+- Postgres (own container or direct install — 31 MB needs nothing special)
+- The FastAPI app (`uvicorn`), serving the API, frontend pages, and file downloads straight from the VPS's disk, exactly as it runs locally today
+- The MCP server (`--http` mode), reachable on its own port/path
+- The crawler, run periodically via cron/a scheduled container for incremental refreshes
+- The full `data/` corpus (~21 GB) on the VPS's disk — trivial against Oracle's 200 GB, comfortable against Hetzner's 40 GB too
+
+**On Cloudflare** (free plan, no code):
+- Either a Tunnel (`cloudflared` on the VPS, zero inbound ports opened — the safer default, same pattern as the NAS plan would have used) or a plain DNS proxy record pointed at the VPS's public IP with the firewall restricted to Cloudflare's published IP ranges — Tunnel is the better default even though the VPS has its own public IP, since it means the VPS is never directly reachable/scannable at all.
+- Automatic TLS between visitors and Cloudflare's edge
+- CDN caching of static assets, DDoS protection, WAF managed rules, and an edge-level rate-limiting rule on `/auth/*` as a second layer in front of the app's own rate limiting (§12) — belt-and-suspenders, not a replacement for it
+
+### 16.4 Cost
+
+| Item | Cost |
+|---|---|
+| VPS — Oracle Cloud Always Free, on a Pay-As-You-Go account (§16.2) | $0/month while within Always Free limits |
+| VPS — Hetzner CX23 (fallback, only if Oracle can't be obtained at all) | ~$6–7/month (~€5.99) |
+| Cloudflare (Tunnel or DNS proxy, TLS, WAF, DDoS, CDN — free plan) | $0 |
+| Domain | already owned, renewal not new spend |
+| **Total new recurring cost** | **$0/month (Oracle) or ~$6–7/month (Hetzner fallback)** |
+
+### 16.5 Step-by-step execution order (not yet started)
+
+1. Create the Oracle Cloud account and **convert it to Pay As You Go**, then set a **$1 budget alert** immediately (§16.2 — this is what removes both the capacity and idle-reclamation risks while keeping Always Free resources at $0). Provision an Always Free ARM instance (2 OCPU / 12 GB / 200 GB, Ubuntu), confirming it's marked "Always Free eligible." If capacity still can't be obtained after a genuine attempt, provision Hetzner CX23 instead.
+2. Basic hardening: non-root sudo user, SSH key auth only, firewall open on 22/80/443 only (or fully closed if using Tunnel exclusively).
+3. Install Docker (or Postgres/Python directly); set up the same container/service shape either way: Postgres, the app, the MCP server, the crawler, `cloudflared`. Point the crawler's cron entry at a log file so every run leaves a record, and add a simple failure notification — ordinary ops monitoring, made low-stakes by the crawler's idempotency (§6).
+4. Configure environment variables (`DATABASE_URL`, `READONLY_DATABASE_URL`, Google OAuth credentials, MCP config, etc.) on the server — never committed to the repo.
+5. Transfer the existing `data/` corpus (~21 GB) onto the VPS.
+6. Run the schema migration mechanism (`crawler/db.py`) against the VPS's Postgres.
+7. Create a Cloudflare Tunnel (preferred) or DNS-proxy record, and route the project owner's existing domain to the app.
+8. Turn on Cloudflare's free-tier protections (WAF managed rules, Bot Fight Mode, the `/auth/*` rate-limit rule).
+9. Set restart policies (`restart: unless-stopped` for Docker, or systemd auto-restart) on every service so everything survives a reboot automatically.
+10. Verify everything live, end to end, on the real public domain — search, detail view, PDF/text rendering (specifically confirming LibreOffice render times on ARM if Oracle was used), Google + local-test-account login, bookmarks, search history, and an MCP tool call over HTTP with a real token — before calling it done.
+11. Set up backups: a `pg_dump` cron job with a copy kept off the VPS (e.g. synced to the project owner's own machine), since a single VPS has no redundancy of its own.
+
+### 16.6 Future scope — when to revisit this shape, not before
+
+- **Oracle instance is lost anyway** (despite PAYG, or if PAYG is declined): fall back to Hetzner CX23 (§16.4) — the app/service shape doesn't change, only where it runs.
+- **Corpus grows far beyond current size** (e.g. if a full historical backfill is ever done, per §11/§15's "not needed for now" call): Oracle's 200 GB absorbs this easily; Hetzner's 40 GB would not, and that's the point at which moving `data/raw`/`data/rendered` to Cloudflare R2 (egress-free, ~$0.015/GB-month) actually pays for the code change it requires. Not justified today either way. If it ever is, the shape to adopt is **VPS (app + Postgres co-located) + R2 (files only) + Cloudflare edge** — one change (a storage abstraction layer with local/S3 backends selected by env var), keeping Postgres local so search stays sub-millisecond. Explicitly *not* the fuller hybrid rejected in §16.2, which splits Postgres off too and turns every query into a network round trip.
+- **Platform portability wanted for its own sake** (not needed today): the full change set is scoped — a storage abstraction over the ~10 call sites that touch the corpus (`crawler/http_client.py`, `crawler/ingest.py`, `crawler/render.py`, `service/queries.py`, `api/main.py`), moving rate-limit state out of process memory (`auth/rate_limit.py:17`'s in-process dict, and the equivalent in `mcp_server.py`), a `--max-items`/`--time-budget` flag so the crawler can run in bounded chunks, and a Dockerfile. That would make the project deployable on Cloudflare Containers, Fly.io, Railway, Render, Cloud Run, or a VPS interchangeably. Worth doing for independence, never worth doing to make Cloudflare Containers the host (§16.2).
+- **Redundancy/uptime needs increase** beyond a single machine: a second VPS and/or a managed Postgres provider (e.g. Neon/Supabase, given how small the DB already is) — a bigger step, not needed at current single-user/small-team scale.
+- **The UGREEN NAS becomes an option again**: re-read this section's "shelved" note above — the technical plan for it was already fully worked out and can be revived without redoing the analysis.
+- **AI features wanted on top of the site** (semantic search, summarization): Cloudflare Workers AI (or any hosted-model API) becomes relevant *then*, as an addition — it is unrelated to, and doesn't change, how the app itself is hosted.

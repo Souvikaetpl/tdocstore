@@ -47,6 +47,8 @@ class HttpClient:
         raise RuntimeError(f"Failed to GET {url} after {config.MAX_RETRIES} attempts") from last_exc
 
     def download(self, url: str, dest_path):
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = dest_path.with_suffix(dest_path.suffix + ".part")
         last_exc = None
         for attempt in range(1, config.MAX_RETRIES + 1):
             self._throttle()
@@ -57,8 +59,6 @@ class HttpClient:
                             f"retryable status {resp.status_code}", request=resp.request, response=resp
                         )
                     resp.raise_for_status()
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    tmp_path = dest_path.with_suffix(dest_path.suffix + ".part")
                     with open(tmp_path, "wb") as f:
                         for chunk in resp.iter_bytes():
                             f.write(chunk)
@@ -66,6 +66,7 @@ class HttpClient:
                 return
             except (httpx.HTTPStatusError, httpx.TransportError) as exc:
                 last_exc = exc
+                tmp_path.unlink(missing_ok=True)
                 backoff = 2 ** attempt
                 log.warning("Download %s failed (attempt %d/%d): %s — retrying in %ds",
                             url, attempt, config.MAX_RETRIES, exc, backoff)

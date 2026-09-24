@@ -9,6 +9,31 @@ async function initAccountPage() {
 
   const config = await (await fetch("/auth/config")).json();
 
+  if (!me.is_admin) {
+    gate.innerHTML = `
+      <section class="admin-section">
+        <h2>MCP server URL</h2>
+        <p class="account-hint">
+          Paste this into any MCP client (Claude.ai connectors, Claude Code, Claude Desktop, etc.)
+          to connect it to this server. It's the same URL for every account — not secret, and not
+          specific to you.
+        </p>
+        <div class="account-token-box">
+          <code>${escapeHtmlAccount(config.mcp_server_url)}</code>
+        </div>
+      </section>
+      <section class="admin-section">
+        <h2>Personal MCP token</h2>
+        <p class="account-hint">
+          Personal MCP tokens are only available to admin accounts. Your website
+          login is unaffected — this only concerns connecting an MCP client
+          (Claude Code, Claude Desktop, etc.) directly to this server as you.
+        </p>
+      </section>
+    `;
+    return;
+  }
+
   const generateBlock = me.mcp_access
     ? `<button type="button" id="newTokenBtn">Generate new token</button>
        <div id="newTokenBox" class="account-token-box" hidden>

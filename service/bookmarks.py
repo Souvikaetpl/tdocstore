@@ -8,8 +8,26 @@ own per-user tables.
 from . import queries
 from .models import Page
 
+MAX_BOOKMARKS_PER_USER = 500
+
+
+class BookmarkLimitExceeded(Exception):
+    """Basic anti-abuse for open public signup (plan §15) — bounds
+    unlimited growth from a single account; removing an existing
+    bookmark always frees up room for another."""
+
 
 def add_bookmark(conn, user_id: int, tdoc_id: str) -> None:
+    if is_bookmarked(conn, user_id, tdoc_id):
+        return  # idempotent no-op, same as the ON CONFLICT below — must
+        # never count against the cap just for re-bookmarking the same doc.
+    count = conn.execute(
+        "SELECT COUNT(*) FROM bookmarks WHERE user_id = %s", (user_id,)
+    ).fetchone()[0]
+    if count >= MAX_BOOKMARKS_PER_USER:
+        raise BookmarkLimitExceeded(
+            f"Maximum of {MAX_BOOKMARKS_PER_USER} bookmarks reached — remove one before adding another."
+        )
     conn.execute(
         "INSERT INTO bookmarks (user_id, tdoc_id) VALUES (%s, %s) ON CONFLICT (user_id, tdoc_id) DO NOTHING",
         (user_id, tdoc_id),

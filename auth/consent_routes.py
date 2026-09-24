@@ -46,6 +46,14 @@ def oauth_consent_page(request_id: str = Query(...), user: Optional[User] = Depe
             <a class="auth-signin" href="/auth/google/login?next={next_url}">Sign in with Google</a>
         """))
 
+    if not user.is_admin:
+        return HTMLResponse(_page("""
+            <h2>MCP access is admin-only</h2>
+            <p class="account-hint">MCP tokens are only available to admin accounts.
+            Your website login is unaffected, but this application can't be authorized
+            to access TDocs/meetings through MCP on your behalf.</p>
+        """))
+
     if not user.mcp_access:
         return HTMLResponse(_page("""
             <h2>MCP access disabled</h2>

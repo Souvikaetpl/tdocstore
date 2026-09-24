@@ -181,7 +181,12 @@ class CreateMcpTokenBody(BaseModel):
 @router.post("/mcp-tokens")
 def create_mcp_token(body: CreateMcpTokenBody, user: User = Depends(require_user)):
     with db.session() as conn:
-        token = queries.create_mcp_token(conn, user.id, body.name)
+        try:
+            token = queries.create_mcp_token(conn, user.id, body.name)
+        except queries.McpAdminOnlyError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except queries.McpTokenLimitExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc))
     if token is None:
         raise HTTPException(status_code=403, detail="MCP access has been disabled for your account")
     # Shown exactly once — only its hash is ever stored, so this is the

@@ -142,19 +142,52 @@ def create_local_test_account(conn, username: str, password: str, display_name: 
     return user
 
 
+MAX_ACTIVE_MCP_TOKENS_PER_USER = 10
+
+
+class McpTokenLimitExceeded(Exception):
+    """Basic anti-abuse for open public signup (plan §15) — a user can
+    always self-service more tokens by revoking an old one first, this
+    only bounds unlimited growth. Deliberately a distinct exception from
+    the None-return used for MCP access being disabled, so callers give
+    a correct, specific error message rather than conflating the two."""
+
+
+class McpAdminOnlyError(Exception):
+    """MCP token issuance is restricted to admin accounts (project owner
+    decision) — a non-admin account can never mint one, regardless of
+    its mcp_access flag. Distinct from the None-return (which stays
+    reserved for an admin whose own mcp_access has been switched off),
+    so a non-admin gets an accurate message instead of being told
+    'disabled' for a capability they never had."""
+
+
 def create_mcp_token(conn, user_id: int, name: Optional[str] = None) -> Optional[str]:
     """Returns the raw token — the only moment it's ever visible. Only
     its SHA-256 hash is stored, same as sessions, so a database leak
     doesn't hand over usable tokens directly.
 
-    Returns None if this user's MCP access has been switched off by an
-    admin — checked here, in the one place both the self-service
-    /account button and the OAuth code-exchange path both go through,
-    so blocking it can't be bypassed by either route re-approving their
+    Raises McpAdminOnlyError if the account isn't an admin. Returns None
+    if this user's MCP access has been switched off by an admin —
+    checked here, in the one place both the self-service /account
+    button and the OAuth code-exchange path both go through, so
+    blocking it can't be bypassed by either route re-approving their
     way to a fresh token."""
     user = get_user_by_id(conn, user_id)
-    if user is None or not user.mcp_access:
+    if user is None:
         return None
+    if not user.is_admin:
+        raise McpAdminOnlyError("MCP tokens are only available to admin accounts.")
+    if not user.mcp_access:
+        return None
+    active_count = conn.execute(
+        "SELECT COUNT(*) FROM mcp_tokens WHERE user_id = %s AND revoked_at IS NULL",
+        (user_id,),
+    ).fetchone()[0]
+    if active_count >= MAX_ACTIVE_MCP_TOKENS_PER_USER:
+        raise McpTokenLimitExceeded(
+            f"Maximum of {MAX_ACTIVE_MCP_TOKENS_PER_USER} active MCP tokens reached — revoke one before creating another."
+        )
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     conn.execute(
@@ -190,13 +223,17 @@ def get_user_by_mcp_token(conn, token: str) -> Optional[User]:
     also cut off MCP, without that being a separate step; checking
     u.mcp_access is the narrower admin lever that blocks MCP alone;
     checking t.revoked_at independently of both is what makes revoking
-    just this one token possible without touching anything else."""
+    just this one token possible without touching anything else.
+    Checking u.is_admin here too (not just at mint time) means an admin
+    demoted to a regular user has their existing tokens stop working on
+    their very next request, same as every other per-request gate here."""
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     row = conn.execute(
         """
         SELECT u.id, u.email, u.display_name, u.is_admin, u.status, u.mcp_access
         FROM mcp_tokens t JOIN users u ON u.id = t.user_id
-        WHERE t.token_hash = %s AND t.revoked_at IS NULL AND u.status = 'active' AND u.mcp_access = true
+        WHERE t.token_hash = %s AND t.revoked_at IS NULL AND u.status = 'active'
+              AND u.mcp_access = true AND u.is_admin = true
         """,
         (token_hash,),
     ).fetchone()

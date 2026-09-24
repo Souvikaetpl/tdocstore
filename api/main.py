@@ -117,7 +117,10 @@ def add_bookmark(tdoc_id: str, user: User = Depends(require_user)):
     if queries.get_tdoc(tdoc_id) is None:
         raise HTTPException(status_code=404, detail=f"TDoc {tdoc_id} not found")
     with crawler_db.session() as conn:
-        bookmarks.add_bookmark(conn, user.id, tdoc_id)
+        try:
+            bookmarks.add_bookmark(conn, user.id, tdoc_id)
+        except bookmarks.BookmarkLimitExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc))
     return {"ok": True}
 
 

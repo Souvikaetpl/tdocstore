@@ -81,9 +81,12 @@ class LocalOAuthProvider(OAuthAuthorizationServerProvider):
             if row is None:
                 raise TokenError(error="invalid_grant", error_description="code expired, already used, or unknown")
             queries.consume_authorization_code(conn, authorization_code.code)
-            token = queries.create_mcp_token(
-                conn, row["user_id"], name=f"OAuth: {client.client_name or client.client_id}"
-            )
+            try:
+                token = queries.create_mcp_token(
+                    conn, row["user_id"], name=f"OAuth: {client.client_name or client.client_id}"
+                )
+            except (queries.McpAdminOnlyError, queries.McpTokenLimitExceeded) as exc:
+                raise TokenError(error="access_denied", error_description=str(exc))
         if token is None:
             # The consent page already checks this and shouldn't have let
             # the user approve in the first place — this is the same

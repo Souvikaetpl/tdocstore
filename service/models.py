@@ -39,6 +39,8 @@ class TDocDetail(TDocSummary):
     extraction_status: Optional[str] = None
     rendered_path: Optional[str] = None
     render_status: Optional[str] = None
+    diff_rendered_path: Optional[str] = None
+    diff_render_status: Optional[str] = None
     text: Optional[str] = None  # loaded from text_path on demand, not stored in DB
 
 

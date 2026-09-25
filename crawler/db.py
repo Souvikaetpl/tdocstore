@@ -78,6 +78,15 @@ SCHEMA_STATEMENTS = [
     "ALTER TABLE tdocs ADD COLUMN IF NOT EXISTS rendered_path TEXT",
     "ALTER TABLE tdocs ADD COLUMN IF NOT EXISTS render_status TEXT",
     "ALTER TABLE tdocs ADD COLUMN IF NOT EXISTS render_error TEXT",
+    # "Diff" view (plan §10 item 5, post-MVP) — LibreOffice's own document
+    # comparison against is_revision_of's predecessor, not a plain-text
+    # diff (crawler/diff_render.py). Same three-column shape as the plain
+    # render above, deliberately kept separate rather than reusing those
+    # columns, since a TDoc can have a cached plain render AND a cached
+    # diff render at once, independently.
+    "ALTER TABLE tdocs ADD COLUMN IF NOT EXISTS diff_rendered_path TEXT",
+    "ALTER TABLE tdocs ADD COLUMN IF NOT EXISTS diff_render_status TEXT",
+    "ALTER TABLE tdocs ADD COLUMN IF NOT EXISTS diff_render_error TEXT",
     # Real date range/location, parsed from each meeting's Invitation
     # document — not available from the TDoc list Excel or any TDoc's own
     # cover page. NULL until fetch_meeting_info() succeeds for it.
@@ -460,6 +469,26 @@ def save_render_result(conn, tdoc_id: str, *, rendered_path, render_status, rend
         WHERE tdoc_id = %s
         """,
         (rendered_path, render_status, render_error, tdoc_id),
+    )
+
+
+def get_diff_render_status(conn, tdoc_id: str):
+    """(diff_rendered_path, diff_render_status) — same
+    re-check-under-the-semaphore purpose as get_render_status."""
+    row = conn.execute(
+        "SELECT diff_rendered_path, diff_render_status FROM tdocs WHERE tdoc_id = %s", (tdoc_id,)
+    ).fetchone()
+    return row if row else (None, None)
+
+
+def save_diff_render_result(conn, tdoc_id: str, *, diff_rendered_path, diff_render_status, diff_render_error):
+    conn.execute(
+        """
+        UPDATE tdocs
+        SET diff_rendered_path = %s, diff_render_status = %s, diff_render_error = %s
+        WHERE tdoc_id = %s
+        """,
+        (diff_rendered_path, diff_render_status, diff_render_error, tdoc_id),
     )
 
 

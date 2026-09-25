@@ -19,6 +19,7 @@ from auth.models import User
 from auth.routes import router as auth_router
 from crawler import db as crawler_db
 from crawler.render import render_to_pdf
+from crawler.diff_render import render_diff_to_pdf
 from crawler import config as crawler_config
 from service import bookmarks, queries, search_history
 from service.models import Page
@@ -197,6 +198,65 @@ def view_tdoc(tdoc_id: str):
     if not detail.rendered_path:
         raise HTTPException(status_code=404, detail=f"No rendered view for {tdoc_id}")
     return FileResponse(detail.rendered_path, media_type="application/pdf")
+
+
+@app.get("/api/tdocs/{tdoc_id}/diff")
+def diff_tdoc(tdoc_id: str):
+    """"What changed since the previous revision", rendered via
+    LibreOffice's own document comparison (crawler/diff_render.py) —
+    same on-first-view-then-cache shape as view_tdoc above, just against
+    a pair of documents instead of one. The predecessor is found two
+    ways, tried in order: (1) is_revision_of — a real revision 3GPP's
+    own metadata declares, e.g. a CR revised during one meeting's
+    discussion; (2) for a handful of recurring administrative doc types
+    with no such link of their own (queries._CROSS_MEETING_DOC_TYPES,
+    e.g. "agenda"), the equivalent document from the previous meeting of
+    the same group (queries.find_cross_meeting_predecessor) — the same
+    document *role*, not a revision of this exact TDoc. 404 with a
+    specific message at each point there's genuinely nothing to diff —
+    no predecessor found either way, predecessor never downloaded, or
+    the compare itself found nothing renderable — rather than a generic
+    failure, since each is a real, distinct reason."""
+    detail = queries.get_tdoc(tdoc_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"TDoc {tdoc_id} not found")
+
+    predecessor_id = detail.is_revision_of or queries.find_cross_meeting_predecessor(tdoc_id)
+    if not predecessor_id:
+        raise HTTPException(status_code=404, detail=f"No predecessor found to diff {tdoc_id} against")
+
+    predecessor = queries.get_tdoc(predecessor_id)
+    if predecessor is None or not predecessor.local_zip_path:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Predecessor {predecessor_id} not available to diff against",
+        )
+    if not detail.local_zip_path:
+        raise HTTPException(status_code=404, detail=f"{tdoc_id} itself has no downloaded document")
+
+    if not detail.diff_rendered_path:
+        dest = crawler_config.RENDER_DIR / detail.tsg / detail.wg_short / detail.meeting_folder / f"{tdoc_id}.diff.pdf"
+        with _RENDER_SEMAPHORE:
+            with crawler_db.session() as conn:
+                already = crawler_db.get_diff_render_status(conn, tdoc_id)
+            if already and already[0]:
+                detail.diff_rendered_path = already[0]
+            else:
+                result = render_diff_to_pdf(
+                    Path(detail.local_zip_path), Path(predecessor.local_zip_path),
+                    tdoc_id, predecessor_id, dest,
+                )
+                diff_rendered_path = str(dest) if result.status == "success" else None
+                with crawler_db.session() as conn:
+                    crawler_db.save_diff_render_result(
+                        conn, tdoc_id, diff_rendered_path=diff_rendered_path,
+                        diff_render_status=result.status, diff_render_error=result.error,
+                    )
+                detail.diff_rendered_path = diff_rendered_path
+
+    if not detail.diff_rendered_path:
+        raise HTTPException(status_code=404, detail=f"No diff available for {tdoc_id}")
+    return FileResponse(detail.diff_rendered_path, media_type="application/pdf")
 
 
 @app.get("/api/meetings")

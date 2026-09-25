@@ -19,7 +19,7 @@ _DETAIL_SELECT = _SUMMARY_SELECT + """,
     t.release, t.spec_version, t.related_wis, t.cr_number, t.cr_revision, t.cr_category,
     t.is_revision_of, t.revised_to, t.ls_to, t.ls_cc,
     t.file_url, t.local_zip_path, t.text_path, t.extraction_status,
-    t.rendered_path, t.render_status
+    t.rendered_path, t.render_status, t.diff_rendered_path, t.diff_render_status
 """
 
 _FROM = "FROM tdocs t JOIN meetings m ON t.meeting_id = m.id"
@@ -39,7 +39,7 @@ def _row_to_detail(row) -> TDocDetail:
         detail.related_wis, detail.cr_number, detail.cr_revision, detail.cr_category,
         detail.is_revision_of, detail.revised_to, detail.ls_to, detail.ls_cc,
         detail.file_url, detail.local_zip_path, detail.text_path, detail.extraction_status,
-        detail.rendered_path, detail.render_status,
+        detail.rendered_path, detail.render_status, detail.diff_rendered_path, detail.diff_render_status,
     ) = rest
     return detail
 
@@ -103,7 +103,7 @@ def search_tdocs(
         SELECT {_SUMMARY_SELECT}, COUNT(*) OVER() AS total_count
         {_FROM}
         {where}
-        ORDER BY t.tdoc_id
+        ORDER BY m.start_date DESC NULLS LAST, t.tdoc_id
         OFFSET %s LIMIT %s
     """
     with db.connect() as conn:
@@ -121,6 +121,78 @@ def get_tdoc(tdoc_id: str) -> Optional[TDocDetail]:
     if row is None:
         return None
     return _load_text(_row_to_detail(row))
+
+
+# Doc types confirmed (against real data, not assumed) to be a single
+# recurring administrative document reissued once per meeting rather
+# than an independent per-topic contribution — "agenda" verified
+# directly against a second public TDoc archive's own Diff feature,
+# which picked the exact same predecessor this function does (see
+# _CROSS_MEETING_DOC_TYPES' one entry below). Deliberately not
+# extended to CR/pCR/discussion/LS/etc. — those are individual
+# contributions with no "the meeting's one copy of this" concept, so
+# "previous meeting's equivalent" isn't a meaningful comparison for
+# them; is_revision_of (the real, 3GPP-declared revision chain) is
+# already the right mechanism there and unaffected by this.
+_CROSS_MEETING_DOC_TYPES = {"agenda"}
+
+
+def find_cross_meeting_predecessor(tdoc_id: str) -> Optional[str]:
+    """For a recurring administrative document type (see
+    _CROSS_MEETING_DOC_TYPES) with no real is_revision_of link of its
+    own, finds the equivalent document from the immediately-preceding
+    meeting of the same group — same document *role* (e.g. "the
+    agenda"), not a formal revision of this exact TDoc.
+
+    "Equivalent" means: the same doc_type, in the nearest earlier
+    meeting of the same tsg/wg_short (by real date, matching how
+    Previous/Upcoming is decided everywhere else in this project), and
+    — when that meeting has more than one document of that type, e.g.
+    an original agenda plus later revisions — the most recently
+    uploaded one, on the theory that it's the meeting's final/
+    canonical version. Verified against a real case: for RAN plenary's
+    TSGR_112, this picks RP-261475 ("Revised agenda", uploaded
+    2026-06-01) over RP-260830 (5/12) and RP-260869 (5/20) — the exact
+    document a second public TDoc archive's own Diff feature also
+    picked for the same comparison.
+
+    Returns None (not a guess) whenever any step is ambiguous or
+    missing — no meeting date, no previous meeting, no candidate in
+    it, or the best candidate was never downloaded — rather than ever
+    surface a diff against something that might be the wrong document."""
+    sql = """
+        SELECT t.doc_type, m.tsg, m.wg_short, m.start_date
+        FROM tdocs t JOIN meetings m ON t.meeting_id = m.id
+        WHERE t.tdoc_id = %s
+    """
+    with db.connect() as conn:
+        row = conn.execute(sql, (tdoc_id,)).fetchone()
+        if row is None:
+            return None
+        doc_type, tsg, wg_short, start_date = row
+        if doc_type not in _CROSS_MEETING_DOC_TYPES or not start_date:
+            return None
+
+        prev_meeting = conn.execute(
+            """
+            SELECT id FROM meetings
+            WHERE tsg = %s AND wg_short = %s AND start_date IS NOT NULL AND start_date < %s
+            ORDER BY start_date DESC LIMIT 1
+            """,
+            (tsg, wg_short, start_date),
+        ).fetchone()
+        if prev_meeting is None:
+            return None
+
+        candidate = conn.execute(
+            """
+            SELECT tdoc_id FROM tdocs
+            WHERE meeting_id = %s AND doc_type = %s AND local_zip_path IS NOT NULL
+            ORDER BY uploaded_at DESC NULLS LAST LIMIT 1
+            """,
+            (prev_meeting[0], doc_type),
+        ).fetchone()
+        return candidate[0] if candidate else None
 
 
 def list_meetings(

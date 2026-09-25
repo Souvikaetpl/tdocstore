@@ -38,6 +38,17 @@ def list_meetings(client, tsg: str, wg_path: str, wg_short: str | None = None) -
     "TSGR_"/"TSGS_") kept working. tsg (when passed) matches that
     "{TSG}_<digits>" style generally, not just for plenary.
 
+    CT4 drifted the same way too, but with wg_short + underscore rather
+    than tsg + underscore: "TSGCT4_124_Maastricht" (caught by "TSG") then
+    "CT4_125_Hefei" onward (2025-02 through at least 2027-02 observed) —
+    matches neither the "TSG" prefix nor the "{wg_short}-<digits>" hyphen
+    style already handled for CT6. Confirmed live against 3GPP's own
+    dynareport calendar and a second independent TDoc archive (TDocHamster)
+    before concluding this was a real gap and not a data limitation — CT4
+    was silently stuck on 2024-era meetings for 14+ real, documented
+    meetings while every sibling CT group kept working. wg_short (when
+    passed) also matches that "{wg_short}_<digits>" underscore style.
+
     Also drops "..._ALL"-suffixed folders (e.g. RAN AH1's "TSGRT_ALL"): a
     legacy aggregate/index folder, not an individual meeting, which would
     otherwise burn a --meetings-per-wg slot for 0 real docs."""
@@ -51,6 +62,8 @@ def list_meetings(client, tsg: str, wg_path: str, wg_short: str | None = None) -
         if name.upper().startswith("TSG"):
             return True
         if wg_short and re.match(rf"^{re.escape(wg_short)}-\d", name, re.IGNORECASE):
+            return True
+        if wg_short and re.match(rf"^{re.escape(wg_short)}_\d", name, re.IGNORECASE):
             return True
         if re.match(rf"^{re.escape(tsg)}_\d", name, re.IGNORECASE):
             return True

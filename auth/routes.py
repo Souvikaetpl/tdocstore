@@ -170,6 +170,19 @@ def set_mcp_access(user_id: int, body: SetMcpAccessBody, admin: User = Depends(r
     return {"ok": True}
 
 
+@router.post("/admin/users/{user_id}/revoke-sessions")
+def revoke_all_sessions(user_id: int, admin: User = Depends(require_admin)):
+    """The missing fourth lever from plan §15's risk notes: ends this
+    account's website sessions only, right now, leaving MCP access and
+    every MCP token completely untouched — the mirror image of
+    set_mcp_access above. The account stays active; they can sign back
+    in immediately, this just forces that re-login rather than banning
+    them."""
+    with db.session() as conn:
+        count = queries.revoke_all_sessions(conn, user_id)
+    return {"ok": True, "sessions_ended": count}
+
+
 # Personal MCP tokens (plan §12 item 3) — self-service for any signed-in
 # user, not admin-only. Independent of the website session on purpose:
 # revoking one of these never touches the other (see

@@ -25,7 +25,7 @@ async function initAdminPage() {
     <section class="admin-section">
       <h2>Users</h2>
       <table class="admin-users-table">
-        <thead><tr><th>Email</th><th>Display name</th><th>Admin</th><th>Status</th><th>MCP access</th><th></th><th></th></tr></thead>
+        <thead><tr><th>Email</th><th>Display name</th><th>Admin</th><th>Status</th><th>MCP access</th><th></th><th></th><th></th></tr></thead>
         <tbody id="usersBody"></tbody>
       </table>
     </section>
@@ -74,6 +74,9 @@ async function loadUsers() {
       <td><button type="button" class="toggle-mcp-access" data-id="${u.id}" data-enabled="${u.mcp_access}">
         ${u.mcp_access ? "Disable MCP" : "Enable MCP"}
       </button></td>
+      <td><button type="button" class="revoke-sessions" data-id="${u.id}" title="End their website sessions now — MCP access untouched, they can sign back in immediately">
+        Force sign-out
+      </button></td>
     </tr>
   `).join("");
 
@@ -98,6 +101,15 @@ async function loadUsers() {
         body: JSON.stringify({ enabled }),
       });
       loadUsers();
+    });
+  });
+
+  document.querySelectorAll(".revoke-sessions").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const res = await fetch(`/auth/admin/users/${btn.dataset.id}/revoke-sessions`, { method: "POST" });
+      const data = await res.json();
+      btn.textContent = data.sessions_ended > 0 ? `Ended ${data.sessions_ended}` : "None active";
+      setTimeout(() => { btn.textContent = "Force sign-out"; }, 2000);
     });
   });
 }

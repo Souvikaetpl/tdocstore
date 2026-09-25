@@ -75,9 +75,35 @@ def _find_soffice() -> str | None:
     return None
 
 
+def _find_soffice_python() -> str | None:
+    """LibreOffice ships its own Python build with the `uno`/`pyuno`
+    bindings compiled in — a document *comparison* (unlike the simple
+    `--convert-to` format conversion render.py uses) is only exposed via
+    the UNO scripting API, so diff_render.py's worker script has to run
+    under THIS interpreter, not the project's regular venv one. Derived
+    from SOFFICE_PATH's own directory rather than hardcoded separately,
+    so it stays correct if SOFFICE_PATH resolves somewhere non-default."""
+    if SOFFICE_PATH is None:
+        return None
+    candidate = Path(SOFFICE_PATH).parent / "python.exe"
+    if candidate.exists():
+        return str(candidate)
+    candidate = Path(SOFFICE_PATH).parent / "python"
+    if candidate.exists():
+        return str(candidate)
+    return None
+
+
 # None if LibreOffice isn't installed — render.py checks this and reports
 # a clear error rather than a confusing subprocess failure.
 SOFFICE_PATH = _find_soffice()
+SOFFICE_PYTHON_PATH = _find_soffice_python()
+# Document comparison involves a live UNO round-trip (start a listener,
+# connect, dispatch, export), not just one subprocess call — generous
+# relative to RENDER_TIMEOUT_SECONDS for that reason, still bounded so a
+# hung compare can't peg a core indefinitely the same way an un-capped
+# plain render once did (see RENDER_TIMEOUT_SECONDS above).
+DIFF_RENDER_TIMEOUT_SECONDS = 60
 # A handful of documents (confirmed cause: a Table-of-Contents field
 # filtered by a custom paragraph style, e.g. TOC \t "Observation" — a
 # 3GPP-template pattern) make LibreOffice's layout engine hang rather than

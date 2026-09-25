@@ -174,11 +174,34 @@ function renderDetailCard(d) {
   // spread modes, print, download) for free, and also means several
   // instances can sit side by side in the compare view without any of
   // them sharing state, since each iframe is its own document.
+  // Diff (plan post-MVP, now built): LibreOffice's own document
+  // comparison, not a plain-text diff -- same PDF.js viewer, just
+  // pointed at /diff instead of /view. The predecessor comes from
+  // either a real is_revision_of link (a CR revised within one
+  // meeting), or -- for a small allowlist of recurring administrative
+  // doc types with no such link of their own, e.g. "agenda" -- the
+  // equivalent document from the previous meeting (see
+  // service/queries.py's find_cross_meeting_predecessor). Shown
+  // whenever either path *could* apply; the lookup can still come up
+  // empty at click time (e.g. the previous meeting was never fully
+  // crawled), which the click handler below checks for explicitly
+  // (a blank iframe from a failed fetch is not an acceptable failure
+  // mode -- it looks identical to a real bug from the user's side).
+  const diffToggleBtn = d.local_zip_path && (d.is_revision_of || d.doc_type === "agenda")
+    ? `<button type="button" class="diff-toggle-btn" data-mode="view">Diff</button>`
+    : "";
+
   let bodyBlock;
   if (d.local_zip_path) {
     const viewUrl = `${API}/tdocs/${encodeURIComponent(d.tdoc_id)}/view`;
+    const diffUrl = `${API}/tdocs/${encodeURIComponent(d.tdoc_id)}/diff`;
     const viewerSrc = `/static/vendor/pdfjs-viewer/web/viewer.html?file=${encodeURIComponent(viewUrl)}`;
-    bodyBlock = `<iframe class="pdfv-frame" src="${viewerSrc}" title="Preview of ${escapeHtml(d.tdoc_id)}"></iframe>`;
+    const diffViewerSrc = `/static/vendor/pdfjs-viewer/web/viewer.html?file=${encodeURIComponent(diffUrl)}`;
+    bodyBlock = `<iframe class="pdfv-frame" src="${viewerSrc}"
+        data-view-src="${escapeHtml(viewerSrc)}" data-diff-src="${escapeHtml(diffViewerSrc)}"
+        data-diff-url="${escapeHtml(diffUrl)}"
+        title="Preview of ${escapeHtml(d.tdoc_id)}"></iframe>
+      <div class="diff-error no-text" hidden></div>`;
   } else if (d.text) {
     bodyBlock = `<div class="detail-text">${escapeHtml(d.text)}</div>`;
   } else {
@@ -189,7 +212,7 @@ function renderDetailCard(d) {
     <div class="tdoc-id">${d.tdoc_id}</div>
     <div class="detail-title">${escapeHtml(d.title || "(no title)")}</div>
     <div class="detail-meta">${metaRows.map(([k, v]) => `<b>${k}:</b> ${escapeHtml(String(v))}`).join("<br>")}</div>
-    <div class="detail-actions">${downloadLink} ${bookmarkBtn}</div>
+    <div class="detail-actions">${downloadLink} ${bookmarkBtn} ${diffToggleBtn}</div>
     ${bodyBlock}
   `;
 }
@@ -278,15 +301,63 @@ async function loadRecentSearches() {
 // and returns a plain HTML string (no post-insertion mount step),
 // so one listener on the shared container covers every instance.
 el("previewContent").addEventListener("click", async (e) => {
-  const btn = e.target.closest(".bookmark-toggle-btn");
-  if (!btn) return;
-  const tdocId = btn.dataset.id;
-  const nowBookmarked = btn.dataset.bookmarked !== "true";
-  await fetch(`${API}/bookmarks/${encodeURIComponent(tdocId)}`, {
-    method: nowBookmarked ? "POST" : "DELETE",
-  });
-  btn.dataset.bookmarked = String(nowBookmarked);
-  btn.textContent = nowBookmarked ? "★ Bookmarked" : "☆ Bookmark";
+  const bookmarkBtn = e.target.closest(".bookmark-toggle-btn");
+  if (bookmarkBtn) {
+    const tdocId = bookmarkBtn.dataset.id;
+    const nowBookmarked = bookmarkBtn.dataset.bookmarked !== "true";
+    await fetch(`${API}/bookmarks/${encodeURIComponent(tdocId)}`, {
+      method: nowBookmarked ? "POST" : "DELETE",
+    });
+    bookmarkBtn.dataset.bookmarked = String(nowBookmarked);
+    bookmarkBtn.textContent = nowBookmarked ? "★ Bookmarked" : "☆ Bookmark";
+    return;
+  }
+
+  const diffBtn = e.target.closest(".diff-toggle-btn");
+  if (diffBtn) {
+    // Scoped to the nearest compare column when in compare view (several
+    // cards on screen at once), falling back to the whole preview pane
+    // for the single-document view (only one card, no column wrapper).
+    const scope = diffBtn.closest(".compare-col") || el("previewContent");
+    const frame = scope.querySelector(".pdfv-frame");
+    const errorEl = scope.querySelector(".diff-error");
+    if (!frame) return;
+    const nowDiff = diffBtn.dataset.mode !== "diff";
+
+    if (!nowDiff) {
+      // Switching back to plain View always works (we already know the
+      // document itself downloaded fine, or the button wouldn't exist).
+      errorEl.hidden = true;
+      frame.hidden = false;
+      frame.src = frame.dataset.viewSrc;
+      diffBtn.dataset.mode = "view";
+      diffBtn.textContent = "Diff";
+      return;
+    }
+
+    // Switching to Diff: check first, rather than pointing the PDF
+    // viewer straight at a URL that might 404 -- it can't render a
+    // JSON error body, so a failure would otherwise show as a blank/
+    // black frame indistinguishable from a real bug.
+    diffBtn.disabled = true;
+    diffBtn.textContent = "Loading…";
+    const res = await fetch(frame.dataset.diffUrl);
+    diffBtn.disabled = false;
+    if (res.ok) {
+      errorEl.hidden = true;
+      frame.hidden = false;
+      frame.src = frame.dataset.diffSrc;
+      diffBtn.dataset.mode = "diff";
+      diffBtn.textContent = "View";
+    } else {
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = data.detail || "No diff available for this document.";
+      errorEl.hidden = false;
+      frame.hidden = true;
+      diffBtn.textContent = "Diff";
+    }
+    return;
+  }
 });
 
 // Lets the homepage deep-link straight into a filtered result set, e.g.

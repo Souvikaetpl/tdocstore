@@ -110,6 +110,20 @@ def set_user_status(conn, user_id: int, status: str) -> None:
         conn.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
 
 
+def revoke_all_sessions(conn, user_id: int) -> int:
+    """Ends every live website session for this account right now,
+    without touching status or mcp_access — the missing complement to
+    set_mcp_access(enabled=False) (that blocks MCP only, website
+    untouched; this blocks website only, MCP untouched). Unlike
+    set_user_status(..., 'disabled'), the account stays active — this
+    is a 'force re-login now' action, not a ban, so the user can sign
+    straight back in on their next request. Returns how many sessions
+    were actually ended, so the caller/UI can tell "forced out 2 active
+    sessions" apart from "nothing to do, they weren't signed in"."""
+    result = conn.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
+    return result.rowcount
+
+
 def set_mcp_access(conn, user_id: int, enabled: bool) -> None:
     """Separate from set_user_status on purpose — this blocks MCP only,
     website login untouched. Turning it off also revokes every live

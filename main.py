@@ -62,7 +62,7 @@ def main():
     )
 
     if args.refresh:
-        refresh_known_groups(meetings_per_wg=3, max_files=args.refresh_max_files)
+        refresh_known_groups(meetings_per_wg=2, max_files=args.refresh_max_files)
         return
 
     if args.extract:
